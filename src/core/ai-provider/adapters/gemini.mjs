@@ -321,7 +321,12 @@ export async function callGeminiSDK(ctx, requestBody, signal) {
             generateConfig.responseMimeType = 'application/json';
         } else if (requestBody.response_format.type === 'json_schema') {
             generateConfig.responseMimeType = 'application/json';
-            generateConfig.responseSchema = requestBody.response_format.schema;
+            // Extract schema from standard OpenAI json_schema format
+            const schema = requestBody.response_format.json_schema?.schema
+                        || requestBody.response_format.schema; // legacy fallback
+            if (schema) {
+                generateConfig.responseSchema = sanitizeSchemaForGemini(schema);
+            }
         }
     }
 
@@ -347,6 +352,10 @@ export async function callGeminiSDK(ctx, requestBody, signal) {
     // high-demand periods where Gemini may take 60-90s to respond.
     const PER_CALL_TIMEOUT = 180_000;
     
+    // Use 5 retries with 5s base delay for Gemini SDK calls.
+    // Gemini 503 "high demand" errors can persist for 30-60+ seconds,
+    // so we need longer backoff (5s, 10s, 20s, 40s, 80s ≈ ~155s window).
+    // Total timeout of 600s accommodates 5 retries × 180s per-call timeouts.
     const geminiResponse = await withRetry(() => {
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
@@ -360,7 +369,7 @@ export async function callGeminiSDK(ctx, requestBody, signal) {
             }),
             timeoutPromise,
         ]), signal).finally(() => clearTimeout(timeoutId));
-    });
+    }, 5, 5000, 600_000);
 
     // Translate response to OpenAI format
     return geminiResponseToOpenai(geminiResponse);

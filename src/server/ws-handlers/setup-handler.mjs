@@ -92,7 +92,9 @@ async function validateProviderKey(provider, key, endpoint) {
                         'content-type': 'application/json'
                     },
                     body: JSON.stringify({
-                        model: 'claude-3-haiku-20240307',
+                        // Use the cheapest available model for key validation
+                        // to minimize costs — this is just a connectivity check.
+                        model: 'claude-haiku-3-5-20241022',
                         max_tokens: 1,
                         messages: [{ role: 'user', content: 'hi' }]
                     })

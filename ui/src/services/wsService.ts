@@ -540,6 +540,20 @@ class WSService {
     this.sendMessage('cloud:list-models');
   }
 
+  // --- Workspace History methods ---
+
+  getWorkspaceHistory() {
+    this.sendMessage('workspace:history-list');
+  }
+
+  removeWorkspaceHistoryEntry(path: string) {
+    this.sendMessage('workspace:history-remove', { path });
+  }
+
+  clearWorkspaceHistory() {
+    this.sendMessage('workspace:history-clear');
+  }
+
   /** Send a raw typed message to the server (bypasses the chat wrapper).
    *  Messages sent before the WebSocket is open are queued and flushed on connect. */
   sendMessage(type: string, payload?: unknown) {

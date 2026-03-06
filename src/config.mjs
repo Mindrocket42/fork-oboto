@@ -28,7 +28,7 @@ const _detectedProvider = process.env.AI_PROVIDER || inferProviderFromModel(_aiM
 const DEFAULT_MODELS = {
   openai: 'gpt-4o',
   gemini: 'gemini-2.5-flash',
-  anthropic: 'claude-sonnet-4-20250514',
+  anthropic: 'claude-sonnet-4-6',
   lmstudio: '',
 };
 

@@ -56,7 +56,8 @@ export class EventicProvider extends AgenticProvider {
                 stream: options.stream,
                 onChunk: options.onChunk
             });
-            return result.response || 'No response generated.';
+            const response = result?.response || '';
+            return response.trim() ? response : 'No response generated.';
         } finally {
             aiProvider.model = originalModel;
         }

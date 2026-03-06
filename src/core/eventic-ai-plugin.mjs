@@ -82,11 +82,10 @@ export class EventicAIProvider {
         // Format handling
         if (format === 'json') {
             if (schema) {
+                // Use the standard OpenAI json_schema format.
+                // Gemini and Cloud adapters extract .json_schema.schema as needed.
                 requestBody.response_format = {
                     type: 'json_schema',
-                    // ai-provider.mjs uses `.schema` for Gemini
-                    schema: schema,
-                    // OpenAI REST expects `json_schema` object
                     json_schema: {
                         name: 'response',
                         strict: true,
@@ -168,10 +167,22 @@ export class EventicAIProvider {
                                     if (!toolCalls) toolCalls = [];
                                     const tcs = parsed.choices[0].delta.tool_calls;
                                     for (const tc of tcs) {
+                                        if (tc.index == null) continue; // skip malformed chunks
                                         if (tc.id) {
-                                            toolCalls[tc.index] = { id: tc.id, function: { name: tc.function.name, arguments: tc.function.arguments || '' } };
+                                            // First chunk for this tool call — initialize
+                                            toolCalls[tc.index] = {
+                                                id: tc.id,
+                                                function: {
+                                                    name: tc.function?.name || '',
+                                                    arguments: tc.function?.arguments || ''
+                                                }
+                                            };
                                         } else if (toolCalls[tc.index]) {
-                                            toolCalls[tc.index].function.arguments += (tc.function.arguments || '');
+                                            // Continuation chunk — accumulate arguments
+                                            if (tc.function?.name) {
+                                                toolCalls[tc.index].function.name = tc.function.name;
+                                            }
+                                            toolCalls[tc.index].function.arguments += (tc.function?.arguments || '');
                                         }
                                     }
                                 }

@@ -9,6 +9,7 @@ import { readJsonFileSync } from '../../lib/json-file-utils.mjs';
 import { wsSend, wsSendError } from '../../lib/ws-utils.mjs';
 import { migrateWorkspaceConfig } from '../../lib/migrate-config-dirs.mjs';
 import { reinitPlugins } from './plugin-reinit.mjs';
+import { recordWorkspaceOpen } from '../../workspace/workspace-history.mjs';
 
 /**
  * Handles: get-settings, update-settings, get-status, set-cwd, refresh-models
@@ -444,6 +445,11 @@ async function handleSetCwd(data, ctx) {
         }
 
         const actualPath = await assistant.changeWorkingDirectory(newPath);
+
+        // Record this workspace in the folder history (fire-and-forget)
+        recordWorkspaceOpen(actualPath).catch(e =>
+            consoleStyler.log('warning', `Failed to record workspace history: ${e.message}`)
+        );
 
         // Migrate legacy .ai-man → .oboto in the new workspace if needed
         migrateWorkspaceConfig(actualPath);

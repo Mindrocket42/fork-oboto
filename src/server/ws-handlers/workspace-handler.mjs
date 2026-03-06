@@ -13,6 +13,12 @@ import { consoleStyler } from '../../ui/console-styler.mjs';
 import { wsSend } from '../../lib/ws-utils.mjs';
 import { migrateWorkspaceConfig } from '../../lib/migrate-config-dirs.mjs';
 import { reinitPlugins } from './plugin-reinit.mjs';
+import {
+    getHistory,
+    recordWorkspaceOpen,
+    removeFromHistory,
+    clearHistory,
+} from '../../workspace/workspace-history.mjs';
 
 /**
  * Switch the active workspace.  Re-initialises assistant, scheduler, and
@@ -74,6 +80,11 @@ async function handleWorkspaceSwitch(data, ctx) {
             agentLoopController.play();
         }
 
+        // Record this workspace in the folder history (fire-and-forget)
+        recordWorkspaceOpen(resolved).catch(e =>
+            consoleStyler.log('warning', `Failed to record workspace history: ${e.message}`)
+        );
+
         consoleStyler.log('system', `✅ Workspace switched to: ${resolved}`);
         wsSend(ws, 'workspace:switched', { success: true, path: resolved });
         broadcastWorkspaceStatus(ctx);
@@ -129,10 +140,62 @@ function broadcastWorkspaceStatus(ctx) {
     broadcast('workspace:status', status);
 }
 
+// ── Workspace History Handlers ───────────────────────────────────────────
+
+/**
+ * Return the workspace folder history list to the requesting client.
+ */
+async function handleWorkspaceHistoryList(_data, ctx) {
+    const { ws } = ctx;
+    try {
+        const history = await getHistory();
+        wsSend(ws, 'workspace:history', { history });
+    } catch (err) {
+        consoleStyler.log('error', `Failed to get workspace history: ${err.message}`);
+        wsSend(ws, 'workspace:history', { history: [], error: err.message });
+    }
+}
+
+/**
+ * Remove a single entry from workspace history.
+ */
+async function handleWorkspaceHistoryRemove(data, ctx) {
+    const { ws } = ctx;
+    const targetPath = data.payload?.path || data.path;
+    if (!targetPath) {
+        wsSend(ws, 'workspace:history', { history: [], error: 'Missing path' });
+        return;
+    }
+    try {
+        const history = await removeFromHistory(targetPath);
+        wsSend(ws, 'workspace:history', { history });
+    } catch (err) {
+        consoleStyler.log('error', `Failed to remove workspace from history: ${err.message}`);
+        wsSend(ws, 'workspace:history', { history: [], error: err.message });
+    }
+}
+
+/**
+ * Clear all workspace history.
+ */
+async function handleWorkspaceHistoryClear(_data, ctx) {
+    const { ws } = ctx;
+    try {
+        const history = await clearHistory();
+        wsSend(ws, 'workspace:history', { history });
+    } catch (err) {
+        consoleStyler.log('error', `Failed to clear workspace history: ${err.message}`);
+        wsSend(ws, 'workspace:history', { history: [], error: err.message });
+    }
+}
+
 // ── Export handler map ───────────────────────────────────────────────────
 
 export const handlers = {
     'workspace:switch': handleWorkspaceSwitch,
     'workspace:status': handleWorkspaceStatus,
     'service:status': handleServiceStatus,
+    'workspace:history-list': handleWorkspaceHistoryList,
+    'workspace:history-remove': handleWorkspaceHistoryRemove,
+    'workspace:history-clear': handleWorkspaceHistoryClear,
 };

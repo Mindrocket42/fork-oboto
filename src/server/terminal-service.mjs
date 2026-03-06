@@ -1,12 +1,6 @@
 import os from 'os';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { consoleStyler } from '../ui/console-styler.mjs';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PTY_BRIDGE_SCRIPT = path.join(__dirname, 'scripts', 'pty-bridge.py');
 
 // Lazy-loaded node-pty (native addon).  Loaded on first terminal connection
 // instead of at module scope to avoid blocking the entire import graph and to
@@ -78,9 +72,8 @@ function setupTerminalWebSocket(terminalWss, assistant) {
                     },
                 });
             } catch (err) {
-                consoleStyler.log('error', `Failed to spawn PTY: ${err.message}. Falling back.`);
-                // Fall back to Python PTY bridge if node-pty spawn fails
-                setupPythonPty(ws, defaultShell, cwd);
+                consoleStyler.log('error', `Failed to spawn PTY: ${err.message}. Falling back to dumb shell.`);
+                setupDumbShell(ws, defaultShell, cwd);
                 return;
             }
 
@@ -150,78 +143,10 @@ function setupTerminalWebSocket(terminalWss, assistant) {
             ws.send(JSON.stringify({ type: 'ready', shell: defaultShell, cwd }));
 
         } else {
-            consoleStyler.log('warning', 'node-pty not available — using Python PTY bridge');
-            setupPythonPty(ws, defaultShell, cwd);
+            consoleStyler.log('warning', 'node-pty not available — using dumb shell fallback');
+            setupDumbShell(ws, defaultShell, cwd);
         }
     });
-}
-
-/**
- * Uses Python's pty module to create a real pseudo-terminal when node-pty is unavailable.
- */
-function setupPythonPty(ws, shellCommand, cwd) {
-    try {
-        consoleStyler.log('system', `Spawning Python PTY bridge for: ${shellCommand}`);
-        
-        const shellProcess = spawn('python3', [PTY_BRIDGE_SCRIPT, shellCommand], {
-            cwd,
-            env: { ...process.env, TERM: 'xterm-256color' },
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        shellProcess.stdout.on('data', (data) => {
-            if (ws.readyState === 1) ws.send(data.toString());
-        });
-
-        shellProcess.stderr.on('data', (data) => {
-            if (ws.readyState === 1) ws.send(data.toString());
-        });
-
-        shellProcess.on('exit', (code) => {
-            consoleStyler.log('system', `Python PTY exited (code: ${code})`);
-            if (ws.readyState === 1) {
-                ws.send(JSON.stringify({ type: 'exit', exitCode: code }));
-                ws.close();
-            }
-        });
-        
-        shellProcess.on('error', (err) => {
-             consoleStyler.log('error', `Python PTY failed: ${err.message}. Falling back to dumb shell.`);
-             setupDumbShell(ws, shellCommand, cwd);
-        });
-
-        ws.on('message', (message) => {
-            try {
-                const str = message.toString();
-                // Parse JSON control messages (e.g. resize) but forward
-                // everything else — including text that starts with '{' —
-                // to the shell's stdin.
-                if (str.startsWith('{')) {
-                    try {
-                        const parsed = JSON.parse(str);
-                        if (parsed.type === 'resize') {
-                            // Python PTY bridge doesn't support resize — ignore
-                            return;
-                        }
-                    } catch {
-                        // Not valid JSON — fall through to write as shell input
-                    }
-                }
-                if (shellProcess.stdin && !shellProcess.stdin.destroyed) {
-                    shellProcess.stdin.write(str);
-                }
-            } catch (e) {}
-        });
-
-        ws.on('close', () => {
-            try { shellProcess.kill(); } catch {}
-        });
-
-        ws.send(JSON.stringify({ type: 'ready', shell: shellCommand, cwd, mode: 'fallback-pty' }));
-
-    } catch (e) {
-        setupDumbShell(ws, shellCommand, cwd);
-    }
 }
 
 /**

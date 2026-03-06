@@ -1,5 +1,6 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
+import net from 'net';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -11,6 +12,25 @@ import { TerminalService } from './terminal-service.mjs';
 import { EventBroadcaster } from './event-broadcaster.mjs';
 import { ClientConnectionHandler } from './client-connection.mjs';
 import { CloudLoader } from './cloud-loader.mjs';
+
+/**
+ * Check whether a TCP port is already in use.
+ * @param {number} port
+ * @returns {Promise<boolean>} true if the port is already taken
+ */
+function isPortInUse(port) {
+    return new Promise((resolve) => {
+        const tester = net.createServer()
+            .once('error', (err) => {
+                if (err.code === 'EADDRINUSE') resolve(true);
+                else resolve(false);
+            })
+            .once('listening', () => {
+                tester.close(() => resolve(false));
+            })
+            .listen(port);
+    });
+}
 
 // Handler modules
 import { handlers as chatHandlers } from './ws-handlers/chat-handler.mjs';
@@ -59,6 +79,17 @@ function buildDispatcher() {
 }
 
 export async function startServer(assistant, workingDir, eventBus, port = 3000, schedulerService = null, secretsManager = null, agentLoopController = null, workspaceContentServer = null, cloudSync = null) {
+    // ── Port conflict detection ─────────────────────────────────────────
+    // Check BEFORE creating the Express app so we fail fast with a clear
+    // error instead of silently losing the race to another server.
+    if (await isPortInUse(port)) {
+        const msg = `Port ${port} is already in use by another process. ` +
+            `Kill the conflicting process or set a different port via PORT env var.\n` +
+            `  Hint: run \`lsof -i :${port} -P -n\` to find what's using it.`;
+        consoleStyler.log('error', msg);
+        throw new Error(msg);
+    }
+
     const app = express();
     // Mutable reference holder so handlers can read/write the active AbortController
     const activeController = { controller: null };
@@ -113,6 +144,18 @@ export async function startServer(assistant, workingDir, eventBus, port = 3000, 
         consoleStyler.log('system', `Server running at http://localhost:${port}`);
         if (fs.existsSync(uiDistPath)) {
             consoleStyler.log('system', `Serving UI from: ${uiDistPath}`);
+        }
+    });
+
+    // Handle EADDRINUSE at the listen level as well (TOCTOU: port could be
+    // grabbed between the pre-check above and the actual listen call).
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            const msg = `Port ${port} is already in use (detected at listen time). ` +
+                `Kill the conflicting process or set a different port via PORT env var.\n` +
+                `  Hint: run \`lsof -i :${port} -P -n\` to find what's using it.`;
+            consoleStyler.log('error', msg);
+            process.exit(1);
         }
     });
 

@@ -56,7 +56,7 @@ export function isCancellationError(err) {
  * @param {Error} err
  * @returns {boolean}
  */
-function _isRetryableError(err) {
+export function isRetryableError(err) {
     // 1. Structured properties — most reliable
     if (err.code === 'UND_ERR_HEADERS_TIMEOUT' ||
         err.code === 'ETIMEDOUT' ||
@@ -81,8 +81,19 @@ function _isRetryableError(err) {
 }
 
 /**
+ * Add random jitter (±25%) to a delay value to prevent thundering herd.
+ * @param {number} delay - Base delay in ms
+ * @returns {number} Jittered delay
+ */
+function addJitter(delay) {
+    const jitter = delay * 0.25 * (2 * Math.random() - 1); // ±25%
+    return Math.max(100, Math.round(delay + jitter));
+}
+
+/**
  * Retry helper for network operations.
  * Includes a hard wall-clock timeout so the caller never hangs indefinitely.
+ * Uses exponential backoff with jitter to avoid thundering herd.
  * @param {Function} fn - Async function to retry
  * @param {number} retries - Max retries (default 3)
  * @param {number} delay - Initial delay in ms (default 2000)
@@ -108,15 +119,16 @@ export async function withRetry(fn, retries = 3, delay = 2000, totalTimeoutMs = 
 
             // Network-level errors (DNS, connection refused, timeouts) and
             // API-level retryable errors (503 UNAVAILABLE, 429 rate limit)
-            const isRetryable = _isRetryableError(err);
+            const isRetryable = isRetryableError(err);
 
             if (i === retries - 1 || !isRetryable) throw err;
             
-            const waitTime = Math.min(delay * Math.pow(2, i), deadline - Date.now());
+            const baseWait = delay * Math.pow(2, i);
+            const waitTime = Math.min(addJitter(baseWait), deadline - Date.now());
             if (waitTime <= 0) {
                 throw new Error(`[AI Provider] Request timed out after ${totalTimeoutMs / 1000}s (no time left for retry)`);
             }
-            consoleStyler.log('warning', `Request failed (${err.code || err.message}). Retrying in ${waitTime}ms...`);
+            consoleStyler.log('warning', `Request failed (${err.code || err.message}). Retrying in ${waitTime}ms (attempt ${i + 1}/${retries})...`);
             await new Promise(resolve => setTimeout(resolve, waitTime));
             continue;
         }
@@ -128,7 +140,7 @@ export async function withRetry(fn, retries = 3, delay = 2000, totalTimeoutMs = 
 
             if (isRetryableStatus && i < retries - 1) {
                 // Respect Retry-After header on 429 rate-limit responses
-                let waitTime = delay * Math.pow(2, i);
+                let waitTime = addJitter(delay * Math.pow(2, i));
                 if (status === 429) {
                     const retryAfter = result.headers?.get?.('retry-after');
                     if (retryAfter) {
@@ -146,13 +158,19 @@ export async function withRetry(fn, retries = 3, delay = 2000, totalTimeoutMs = 
                     }
                 }
 
+                // For 503 (service unavailable / high demand), use longer base delay
+                // since these spikes often last 30-60+ seconds
+                if (status === 503) {
+                    waitTime = Math.max(waitTime, addJitter(5000 * Math.pow(2, i)));
+                }
+
                 // Clamp wait to remaining budget
                 waitTime = Math.min(waitTime, deadline - Date.now());
                 if (waitTime <= 0) {
                     throw new Error(`[AI Provider] Request timed out after ${totalTimeoutMs / 1000}s (no time for rate-limit retry)`);
                 }
 
-                consoleStyler.log('warning', `HTTP ${status}. Retrying in ${waitTime}ms...`);
+                consoleStyler.log('warning', `HTTP ${status}. Retrying in ${waitTime}ms (attempt ${i + 1}/${retries})...`);
                 await new Promise(resolve => setTimeout(resolve, waitTime));
                 continue;
             }

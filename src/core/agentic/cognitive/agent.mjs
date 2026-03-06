@@ -26,6 +26,7 @@ import { CognitiveCore } from './cognitive.mjs';
 import { resolveCognitiveConfig } from './config.mjs';
 import { ActivityTracker } from '../../activity-tracker.mjs';
 import { emitStatus, emitToolStatus } from '../../status-reporter.mjs';
+import { isRetryableError, isCancellationError } from '../../ai-provider/utils.mjs';
 
 /**
  * @typedef {Object} CognitiveAgentDeps
@@ -239,22 +240,66 @@ class CognitiveAgent {
       // If the tool loop finished but the final response is still empty
       // (common with Gemini thinking models that return only thought parts),
       // make one more LLM call WITHOUT tools to force a text-only summary.
-      if (!response.content && toolRounds > 0) {
+      // Also handle the case where the loop exhausted maxToolRounds and the
+      // model's last response contained tool calls (which were dropped).
+      const needsSynthesis = toolRounds > 0 && !response.content?.trim();
+      if (needsSynthesis) {
         this._tracker.setActivity('Synthesizing final response…');
+
+        // Build a summary of all tool results so the model has them in context
+        // even if earlier tool messages were truncated by the context window.
+        const toolSummary = toolResults.map(t => {
+          const resultStr = typeof t.result === 'string' ? t.result : JSON.stringify(t.result);
+          return `- ${t.tool}: ${resultStr.substring(0, 500)}`;
+        }).join('\n');
+
         messages.push({
           role: 'system',
-          content: 'The tool loop has completed. Synthesize all tool results above into a final, complete response for the user. Do NOT call any more tools.'
+          content: `The tool loop has completed (${toolRounds} rounds, ${toolResults.length} tool calls executed). Here is a summary of all tool results:\n\n${toolSummary}\n\nSynthesize all tool results above into a final, complete response for the user. Do NOT call any more tools. You MUST provide a text response.`
         });
         response = await this._callLLM(messages, [], options);
+
+        // If the synthesis call ALSO returned empty (e.g. Gemini thought-only),
+        // retry once more with an even more explicit prompt.
+        if (!response.content?.trim()) {
+          this._tracker.setActivity('Retrying synthesis…');
+          messages.push({
+            role: 'system',
+            content: 'Your previous response was empty. You MUST respond with visible text. Summarize what actions were taken and their results for the user. Do not use any tools.'
+          });
+          response = await this._callLLM(messages, [], options);
+        }
+
+        // Last resort: if still empty, construct a response from the tool results
+        if (!response.content?.trim()) {
+          const fallbackParts = [`I completed ${toolResults.length} tool operation(s):\n`];
+          for (const t of toolResults) {
+            const resultStr = typeof t.result === 'string' ? t.result : JSON.stringify(t.result);
+            const truncatedResult = resultStr.length > 200 ? resultStr.substring(0, 200) + '…' : resultStr;
+            fallbackParts.push(`• **${t.tool}**: ${truncatedResult}`);
+          }
+          response = { content: fallbackParts.join('\n'), toolCalls: null, rawMessage: null };
+        }
       }
     } catch (e) {
+      // Provide a user-friendly message that distinguishes temporary
+      // service issues (503/UNAVAILABLE) from permanent errors (auth, etc.)
+      let errorMsg;
+      if (isRetryableError(e)) {
+        errorMsg = `The AI model is temporarily unavailable (likely due to high demand). The request was retried multiple times but the service did not recover in time. Please try again in a minute or two. (Technical: ${e.message})`;
+      } else if (isCancellationError(e)) {
+        errorMsg = 'The request was cancelled.';
+      } else {
+        errorMsg = `I encountered an error communicating with the LLM: ${e.message}`;
+      }
       response = {
-        content: `I encountered an error communicating with the LLM: ${e.message}. My cognitive state: coherence=${inputAnalysis.coherence.toFixed(3)}, entropy=${inputAnalysis.entropy.toFixed(3)}`,
+        content: `${errorMsg} My cognitive state: coherence=${inputAnalysis.coherence.toFixed(3)}, entropy=${inputAnalysis.entropy.toFixed(3)}`,
         toolCalls: null
       };
     }
 
-    const responseText = response.content || '';
+    // Ensure we have actual text content, not just whitespace
+    const responseText = (response.content || '').trim() ? response.content : '';
 
     // ── Step 9: Validate through ObjectivityGate ──────────────────────
     emitStatus('Validating response quality');

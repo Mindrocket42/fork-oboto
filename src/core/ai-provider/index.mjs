@@ -1,6 +1,6 @@
 import { AI_PROVIDERS, WEBLLM_RECOMMENDED_MODELS } from './constants.mjs';
 import { detectProvider, getEndpoint, getAuthHeaders, createProviderContext, getProviderLabel } from './detection.mjs';
-import { isCancellationError, withRetry } from './utils.mjs';
+import { isCancellationError, isRetryableError, withRetry } from './utils.mjs';
 import { callGeminiSDK, callGeminiSDKStream } from './adapters/gemini.mjs';
 import { callOpenAIREST, callOpenAIRESTStream, transformRequestBody } from './adapters/openai.mjs';
 import { callWebLLM, setEventBusRef as setWebLLMEventBusRef } from './adapters/webllm.mjs';
@@ -16,6 +16,7 @@ export {
     transformRequestBody,
     createProviderContext,
     isCancellationError,
+    isRetryableError,
     getProviderLabel,
     setCloudSyncRef,
 };
@@ -87,4 +88,4 @@ export async function callProviderStream(requestBody, options = {}) {
 }
 
 // Test-only exports (stripped in production builds)
-export const _testExports = { withRetry, isCancellationError };
+export const _testExports = { withRetry, isCancellationError, isRetryableError };

@@ -237,7 +237,8 @@ export class EventicFacade {
                 model: options.model
             });
             // Providers may return a string or { response, streamed }
-            return typeof result === 'string' ? result : (result.response || 'No response generated.');
+            const response = typeof result === 'string' ? result : (result?.response || '');
+            return response.trim() ? response : 'No response generated.';
         } catch (err) {
             consoleStyler.logError('error', 'Run error', err);
             throw err;
@@ -281,7 +282,7 @@ export class EventicFacade {
                 onChunk(responseText);
             }
             
-            return responseText || 'No response generated.';
+            return responseText.trim() ? responseText : 'No response generated.';
         } catch (err) {
             consoleStyler.logError('error', 'Stream error', err);
             return `Error: ${err.message}`;

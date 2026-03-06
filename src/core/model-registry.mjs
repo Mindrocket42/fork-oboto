@@ -46,7 +46,7 @@ const FALLBACK_MODELS = {
         reasoningCapability: 'medium',
     },
     // ── Anthropic (fallback — no list API available) ─────────
-    'claude-sonnet-4-20250514': {
+    'claude-sonnet-4-6': {
         provider: 'anthropic',
         contextWindow: 200000,
         maxOutputTokens: 64000,
@@ -56,7 +56,7 @@ const FALLBACK_MODELS = {
         costTier: 'medium',
         reasoningCapability: 'high',
     },
-    'claude-opus-4-20250514': {
+    'claude-opus-4-6': {
         provider: 'anthropic',
         contextWindow: 200000,
         maxOutputTokens: 32000,
@@ -65,16 +65,6 @@ const FALLBACK_MODELS = {
         supportsReasoningEffort: false,
         costTier: 'expensive',
         reasoningCapability: 'high',
-    },
-    'claude-haiku-3-5-20241022': {
-        provider: 'anthropic',
-        contextWindow: 200000,
-        maxOutputTokens: 8192,
-        supportsToolCalling: true,
-        supportsStreaming: true,
-        supportsReasoningEffort: false,
-        costTier: 'cheap',
-        reasoningCapability: 'medium',
     },
 };
 
@@ -84,7 +74,19 @@ const FALLBACK_MODELS = {
  * Updated periodically as new models become available.
  */
 const ANTHROPIC_KNOWN_MODELS = {
-    'claude-opus-4-20250514': {
+    'claude-sonnet-4-6': {
+        provider: 'anthropic',
+        contextWindow: 200000,
+        maxOutputTokens: 64000,
+        supportsToolCalling: true,
+        supportsStreaming: true,
+        supportsReasoningEffort: false,
+        costTier: 'medium',
+        reasoningCapability: 'high',
+        displayName: 'Claude Sonnet 4.6',
+        _fromAPI: true,
+    },
+    'claude-opus-4-6': {
         provider: 'anthropic',
         contextWindow: 200000,
         maxOutputTokens: 32000,
@@ -93,79 +95,7 @@ const ANTHROPIC_KNOWN_MODELS = {
         supportsReasoningEffort: false,
         costTier: 'expensive',
         reasoningCapability: 'high',
-        displayName: 'Claude Opus 4',
-        _fromAPI: true,
-    },
-    'claude-sonnet-4-20250514': {
-        provider: 'anthropic',
-        contextWindow: 200000,
-        maxOutputTokens: 64000,
-        supportsToolCalling: true,
-        supportsStreaming: true,
-        supportsReasoningEffort: false,
-        costTier: 'medium',
-        reasoningCapability: 'high',
-        displayName: 'Claude Sonnet 4',
-        _fromAPI: true,
-    },
-    'claude-3-7-sonnet-20250219': {
-        provider: 'anthropic',
-        contextWindow: 200000,
-        maxOutputTokens: 64000,
-        supportsToolCalling: true,
-        supportsStreaming: true,
-        supportsReasoningEffort: true,
-        costTier: 'medium',
-        reasoningCapability: 'high',
-        displayName: 'Claude 3.7 Sonnet',
-        _fromAPI: true,
-    },
-    'claude-3-5-sonnet-v2@20241022': {
-        provider: 'anthropic',
-        contextWindow: 200000,
-        maxOutputTokens: 8192,
-        supportsToolCalling: true,
-        supportsStreaming: true,
-        supportsReasoningEffort: false,
-        costTier: 'medium',
-        reasoningCapability: 'high',
-        displayName: 'Claude 3.5 Sonnet v2',
-        _fromAPI: true,
-    },
-    'claude-3-5-haiku@20241022': {
-        provider: 'anthropic',
-        contextWindow: 200000,
-        maxOutputTokens: 8192,
-        supportsToolCalling: true,
-        supportsStreaming: true,
-        supportsReasoningEffort: false,
-        costTier: 'cheap',
-        reasoningCapability: 'medium',
-        displayName: 'Claude 3.5 Haiku',
-        _fromAPI: true,
-    },
-    'claude-3-opus@20240229': {
-        provider: 'anthropic',
-        contextWindow: 200000,
-        maxOutputTokens: 4096,
-        supportsToolCalling: true,
-        supportsStreaming: true,
-        supportsReasoningEffort: false,
-        costTier: 'expensive',
-        reasoningCapability: 'high',
-        displayName: 'Claude 3 Opus',
-        _fromAPI: true,
-    },
-    'claude-3-haiku@20240307': {
-        provider: 'anthropic',
-        contextWindow: 200000,
-        maxOutputTokens: 4096,
-        supportsToolCalling: true,
-        supportsStreaming: true,
-        supportsReasoningEffort: false,
-        costTier: 'cheap',
-        reasoningCapability: 'medium',
-        displayName: 'Claude 3 Haiku',
+        displayName: 'Claude Opus 4.6',
         _fromAPI: true,
     },
 };
@@ -544,7 +474,7 @@ export function getModelInfo(modelId) {
     if (builtIn[modelId]) return { id: modelId, ...builtIn[modelId] };
     if (_customModels[modelId]) return { id: modelId, ..._customModels[modelId] };
 
-    // Try prefix match for versioned model names (e.g. 'claude-sonnet-4-20250514' → match)
+    // Try prefix match for versioned model names (e.g. 'claude-sonnet-4-6' → match)
     for (const [key, val] of Object.entries(builtIn)) {
         if (modelId.startsWith(key) || key.startsWith(modelId)) {
             return { id: modelId, ...val };
