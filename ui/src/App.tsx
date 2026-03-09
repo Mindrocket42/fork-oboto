@@ -24,7 +24,7 @@ import { useChat } from './hooks/useChat';
 import { useSurface } from './hooks/useSurface';
 import { useSecrets } from './hooks/useSecrets';
 import { SurfaceRenderer } from './components/features/SurfaceRenderer';
-import { SurfaceSourceViewer } from './components/features/SurfaceSourceViewer';
+import { SurfaceSourceEditor } from './components/features/SurfaceSourceEditor';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useTheme } from './hooks/useTheme';
 import { useDisplayNames } from './hooks/useDisplayNames';
@@ -61,9 +61,9 @@ function App() {
     agenticProviders, activeAgenticProvider, switchAgenticProvider,
   } = useChat();
 
-  const { 
-    surfaces, loadedSurfaces, componentSources, loadSurface, renameSurface, 
-    deleteSurface, duplicateSurface 
+  const {
+    surfaces, loadedSurfaces, componentSources, loadSurface, renameSurface,
+    deleteSurface, duplicateSurface, updateSurface, removeSurfaceComponent
   } = useSurface();
 
   const { secrets } = useSecrets();
@@ -535,6 +535,7 @@ function App() {
                   onDelete={() => {
                       tabManager.handleCloseTab(tab.id);
                   }}
+                  onViewSource={tabManager.handleViewSource}
                 />
               </div>
             ))}
@@ -544,10 +545,12 @@ function App() {
                 key={tab.id}
                 className={`flex-1 flex flex-col w-full min-w-0 min-h-0 ${tabManager.activeTabId === tab.id ? '' : 'hidden'}`}
               >
-                <SurfaceSourceViewer
+                <SurfaceSourceEditor
                   surfaceId={tab.surfaceId!}
                   data={loadedSurfaces[tab.surfaceId!] ?? null}
                   sources={componentSources}
+                  onSave={updateSurface}
+                  onRemoveComponent={removeSurfaceComponent}
                 />
               </div>
             ))}

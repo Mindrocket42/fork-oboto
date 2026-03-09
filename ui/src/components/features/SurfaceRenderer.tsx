@@ -3,7 +3,7 @@
  * Delegates to ComponentWrapper for each component, manages lifecycle & layout.
  */
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Loader2, RefreshCw, Pin, Trash2, LayoutGrid } from 'lucide-react';
+import { Loader2, RefreshCw, Pin, Trash2, LayoutGrid, Code2 } from 'lucide-react';
 import type { SurfaceData, SurfaceComponent } from '../../hooks/useSurface';
 import { wsService } from '../../services/wsService';
 import { FlexGridContainer } from '../layout/FlexGrid';
@@ -20,6 +20,7 @@ export interface SurfaceRendererProps {
   onRefresh: () => void;
   onPinToggle?: (id: string) => void;
   onDelete?: (id: string) => void;
+  onViewSource?: (surfaceId: string) => void;
   isFocused?: boolean;
   workflows?: Workflow[];
   interactions?: WorkflowInteraction[];
@@ -38,6 +39,7 @@ export const SurfaceRenderer: React.FC<SurfaceRendererProps> = ({
   onRefresh,
   onPinToggle,
   onDelete,
+  onViewSource,
   isFocused = true,
   workflows = [],
   interactions = [],
@@ -125,6 +127,11 @@ export const SurfaceRenderer: React.FC<SurfaceRendererProps> = ({
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
+          {onViewSource && (
+            <button onClick={() => onViewSource(surfaceId)} className="p-1.5 hover:bg-cyan-500/20 text-zinc-600 hover:text-cyan-400 rounded transition-colors" title="View / Edit Source">
+              <Code2 size={12} />
+            </button>
+          )}
           <button onClick={() => onPinToggle?.(surfaceId)} className={`p-1.5 rounded transition-colors ${data.pinned ? 'bg-indigo-500/20 text-indigo-400' : 'hover:bg-zinc-800 text-zinc-600'}`} title={data.pinned ? "Unpin" : "Pin"}>
             <Pin size={12} />
           </button>

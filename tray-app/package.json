@@ -20,6 +20,7 @@
     "appId": "com.oboto.tray",
     "publish": null,
     "productName": "Oboto",
+    "afterPack": "./scripts/afterPack.js",
     "directories": {
       "output": "dist"
     },
@@ -31,7 +32,7 @@
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
-      "notarize": true
+      "notarize": false
     },
     "win": {
       "icon": "assets/icon.ico",
