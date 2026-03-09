@@ -19,8 +19,6 @@ describe('detectProvider', () => {
         consoleStylerLogSpy = jest.spyOn(consoleStyler, 'log').mockImplementation(() => {});
     });
     afterEach(() => {
-        // Reset the one-time claude warning flag between tests
-        detectProvider._claudeWarned = false;
         consoleStylerLogSpy.mockRestore();
     });
 
@@ -40,12 +38,51 @@ describe('detectProvider', () => {
         expect(detectProvider('o3-mini')).toBe(AI_PROVIDERS.OPENAI);
     });
 
-    test('returns "openai" for "claude-3-opus" (routed to OpenAI)', () => {
-        expect(detectProvider('claude-3-opus')).toBe(AI_PROVIDERS.OPENAI);
-    });
+    describe('claude-* routing with Vertex env vars', () => {
+        const savedEnv = {};
 
-    test('returns "openai" for "claude-3-haiku"', () => {
-        expect(detectProvider('claude-3-haiku')).toBe(AI_PROVIDERS.OPENAI);
+        beforeEach(() => {
+            savedEnv.VERTEX_PROJECT_ID = process.env.VERTEX_PROJECT_ID;
+            savedEnv.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT;
+        });
+
+        afterEach(() => {
+            // Restore original env vars (may have been undefined)
+            if (savedEnv.VERTEX_PROJECT_ID === undefined) {
+                delete process.env.VERTEX_PROJECT_ID;
+            } else {
+                process.env.VERTEX_PROJECT_ID = savedEnv.VERTEX_PROJECT_ID;
+            }
+            if (savedEnv.GOOGLE_CLOUD_PROJECT === undefined) {
+                delete process.env.GOOGLE_CLOUD_PROJECT;
+            } else {
+                process.env.GOOGLE_CLOUD_PROJECT = savedEnv.GOOGLE_CLOUD_PROJECT;
+            }
+        });
+
+        test('returns "anthropic" for "claude-3-opus" when VERTEX_PROJECT_ID is set', () => {
+            process.env.VERTEX_PROJECT_ID = 'my-project';
+            delete process.env.GOOGLE_CLOUD_PROJECT;
+            expect(detectProvider('claude-3-opus')).toBe(AI_PROVIDERS.ANTHROPIC);
+        });
+
+        test('returns "anthropic" for "claude-3-haiku" when GOOGLE_CLOUD_PROJECT is set', () => {
+            delete process.env.VERTEX_PROJECT_ID;
+            process.env.GOOGLE_CLOUD_PROJECT = 'my-project';
+            expect(detectProvider('claude-3-haiku')).toBe(AI_PROVIDERS.ANTHROPIC);
+        });
+
+        test('returns "openai" for "claude-3-opus" without Vertex env vars', () => {
+            delete process.env.VERTEX_PROJECT_ID;
+            delete process.env.GOOGLE_CLOUD_PROJECT;
+            expect(detectProvider('claude-3-opus')).toBe(AI_PROVIDERS.OPENAI);
+        });
+
+        test('returns "openai" for "claude-3-haiku" without Vertex env vars', () => {
+            delete process.env.VERTEX_PROJECT_ID;
+            delete process.env.GOOGLE_CLOUD_PROJECT;
+            expect(detectProvider('claude-3-haiku')).toBe(AI_PROVIDERS.OPENAI);
+        });
     });
 
     test('returns "lmstudio" for "llama-3" (unknown model → fallback)', () => {
@@ -54,23 +91,6 @@ describe('detectProvider', () => {
 
     test('returns "lmstudio" for "mistral-7b" (unknown model → fallback)', () => {
         expect(detectProvider('mistral-7b')).toBe(AI_PROVIDERS.LMSTUDIO);
-    });
-
-    test('emits claude deprecation warning only once', () => {
-        // First call — should warn via consoleStyler.log('warning', ...)
-        detectProvider('claude-3-opus');
-        const warningCalls = consoleStylerLogSpy.mock.calls.filter(
-            ([type]) => type === 'warning'
-        );
-        expect(warningCalls.length).toBe(1);
-        expect(warningCalls[0][1]).toMatch(/Anthropic Vertex SDK has been removed/);
-
-        // Second call — should NOT warn again
-        detectProvider('claude-3-haiku');
-        const warningCallsAfter = consoleStylerLogSpy.mock.calls.filter(
-            ([type]) => type === 'warning'
-        );
-        expect(warningCallsAfter.length).toBe(1);
     });
 });
 
@@ -151,10 +171,12 @@ describe('withRetry', () => {
             return Promise.resolve({ ok: true, body: 'back up' });
         };
 
+        // 503 retries use a minimum 5s+jitter backoff (see utils.mjs line 164),
+        // so we need a longer timeout than Jest's default 5s.
         const result = await withRetry(fn, 3, 1);
         expect(result).toEqual({ ok: true, body: 'back up' });
         expect(calls).toBe(2);
-    });
+    }, 15_000);
 
     test('respects Retry-After header on 429', async () => {
         let calls = 0;

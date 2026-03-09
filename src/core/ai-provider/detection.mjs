@@ -32,13 +32,15 @@ export function detectProvider(model) {
         return AI_PROVIDERS.GEMINI;
     }
 
-    // Anthropic Claude models — Vertex SDK was removed; route to OpenAI-compatible endpoint
-    // (users can point their configured endpoint to an Anthropic-compatible proxy)
+    // Anthropic Claude models — use Vertex adapter when Vertex credentials
+    // are configured, otherwise route to OpenAI-compatible endpoint (works
+    // with Anthropic's own API or any proxy).
     if (m.startsWith('claude-')) {
-        if (!detectProvider._claudeWarned) {
-            detectProvider._claudeWarned = true;
-            consoleStyler.log('warning', 'Anthropic Vertex SDK has been removed. Claude models will be routed to the configured OpenAI-compatible endpoint. Set AI_ENDPOINT to an Anthropic-compatible proxy if needed.');
+        const hasVertex = !!(process.env.VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT);
+        if (hasVertex) {
+            return AI_PROVIDERS.ANTHROPIC;
         }
+        // Fall back to OpenAI-compatible endpoint (Anthropic direct API or proxy)
         return AI_PROVIDERS.OPENAI;
     }
 
@@ -102,6 +104,10 @@ export function getAuthHeaders(provider) {
             }
             return {};
 
+        case AI_PROVIDERS.ANTHROPIC:
+            // Vertex SDK handles auth via Google ADC — no explicit headers needed
+            return {};
+
         case AI_PROVIDERS.LMSTUDIO:
         default:
             // Local servers may still use an API key for compatibility
@@ -147,6 +153,7 @@ export function getProviderLabel(model) {
         [AI_PROVIDERS.LMSTUDIO]: 'LMStudio',
         [AI_PROVIDERS.OPENAI]: 'OpenAI',
         [AI_PROVIDERS.GEMINI]: 'Gemini',
+        [AI_PROVIDERS.ANTHROPIC]: 'Anthropic',
     };
     return `${labels[ctx.provider] || ctx.provider} (${ctx.model})`;
 }

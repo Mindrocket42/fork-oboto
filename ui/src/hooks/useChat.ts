@@ -300,6 +300,20 @@ export const useChat = () => {
          // No message mutation needed.
       }),
 
+      // message-update: patch an existing message by ID (used for task-plan step updates)
+      wsService.on('message-update', (payload: unknown) => {
+        const patch = payload as Partial<Message> & { id: string };
+        if (!patch.id) return;
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === patch.id);
+          if (idx === -1) return prev;
+          const updated = { ...prev[idx], ...patch };
+          const newMsgs = [...prev];
+          newMsgs[idx] = updated;
+          return newMsgs;
+        });
+      }),
+
       // --- Conversation management events ---
       wsService.on('conversation-list', (payload: unknown) => {
         setConversations(payload as ConversationInfo[]);

@@ -186,8 +186,11 @@ async function main() {
         if (isServer) {
             // Server mode
             const { startServer } = await import('./server/web-server.mjs');
+            // Respect PORT env var (set by tray-app daemon manager for auto-port selection)
+            const rawPort = parseInt(process.env.PORT || '3000', 10);
+            const port = (Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535) ? rawPort : 3000;
             // Pass schedulerService, secretsManager, agentLoopController, workspaceContentServer, and cloudSync to startServer
-            await startServer(assistant, workingDir, eventBus, 3000, schedulerService, secretsManager, agentLoopController, workspaceContentServer, cloudSync);
+            await startServer(assistant, workingDir, eventBus, port, schedulerService, secretsManager, agentLoopController, workspaceContentServer, cloudSync);
         } else if (isInteractive) {
             // Interactive mode
             await cli.startInteractiveMode(assistant, workingDir);

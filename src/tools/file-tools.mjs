@@ -51,6 +51,10 @@ export class FileTools {
     async writeFile(args) {
         const { path: filePath, content, encoding = 'utf8', _allowOutside = false } = args;
         
+        if (content === undefined || content === null) {
+            return `Error writing file: No content provided for ${filePath || '(no path)'}`;
+        }
+        
         consoleStyler.log('working', `Writing file: ${filePath}`);
         
         try {

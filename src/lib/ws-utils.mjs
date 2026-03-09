@@ -22,6 +22,21 @@ export function wsSend(ws, type, payload) {
 }
 
 /**
+ * Send a message-update event to patch an existing message in the UI.
+ * The UI will find the message by `id` and merge the payload fields.
+ *
+ * @param {import('ws').WebSocket} ws - WebSocket connection
+ * @param {string} id - Message ID to update
+ * @param {Object} fields - Fields to merge into the existing message
+ *
+ * @example
+ *   wsSendUpdate(ws, 'plan-123', { steps: updatedSteps, status: 'executing' });
+ */
+export function wsSendUpdate(ws, id, fields) {
+    wsSend(ws, 'message-update', { id, ...fields });
+}
+
+/**
  * Send an error message over WebSocket.
  *
  * @param {import('ws').WebSocket} ws - WebSocket connection

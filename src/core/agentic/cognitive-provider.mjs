@@ -10,6 +10,12 @@
  * so it benefits from all configured backends (Gemini, OpenAI, LMStudio, etc.)
  * and the full ai-man tool ecosystem.
  *
+ * When lmscript is available, creates a full LScriptRuntime with:
+ *  - AiManLLMProvider (bridges ai-man's callProvider to lmscript's LLMProvider)
+ *  - ToolBridge (converts ToolExecutor tools to lmscript ToolDefinition format)
+ *  - CognitiveMiddleware (bridges CognitiveCore into lmscript middleware hooks)
+ *  - EventBusTransport (bridges lmscript Logger to ai-man eventBus)
+ *
  * @module src/core/agentic/cognitive-provider
  */
 
@@ -17,6 +23,11 @@ import { AgenticProvider } from './base-provider.mjs';
 import { CognitiveAgent } from './cognitive/agent.mjs';
 import { consoleStyler } from '../../ui/console-styler.mjs';
 import { emitStatus } from '../status-reporter.mjs';
+import { classifyInput, generatePlan, executePlan, synthesizeResponse } from './cognitive/task-planner.mjs';
+import { wsSend, wsSendUpdate } from '../../lib/ws-utils.mjs';
+
+// lmscript runtime components are loaded dynamically in initialize()
+// to avoid crashing the process if @sschepis/lmscript is not installed.
 
 export class CognitiveProvider extends AgenticProvider {
     get id() { return 'cognitive'; }
@@ -47,6 +58,86 @@ export class CognitiveProvider extends AgenticProvider {
         }
 
         consoleStyler.log('agentic', `Initialized cognitive provider — coherence=${this._agent.cognitive.coherence.toFixed(3)}, entropy=${this._agent.cognitive.entropy.toFixed(3)}`);
+
+        // --- lmscript runtime setup (dynamic import to avoid crash if package missing) ---
+        try {
+            const { LScriptRuntime, MiddlewareManager, Logger } = await import('@sschepis/lmscript');
+            const { AiManLLMProvider } = await import('./cognitive/lmscript-provider.mjs');
+            const { ToolBridge } = await import('./cognitive/tool-bridge.mjs');
+            const { createCognitiveMiddleware } = await import('./cognitive/cognitive-middleware.mjs');
+            const { createEventBusTransport } = await import('./cognitive/eventbus-transport.mjs');
+
+            const lmConfig = this._agent.config.lmscript || {};
+
+            // 1. Create LLM provider adapter
+            const llmProvider = new AiManLLMProvider({
+                model: this._agent.config.agent?.model,
+                providerSettings: deps.providerSettings || {},
+                circuitBreakerConfig: lmConfig.circuitBreaker
+            });
+
+            // 2. Create tool bridge
+            const toolBridge = new ToolBridge(deps.toolExecutor, {
+                workingDir: deps.workingDir,
+                ws: deps.ws,
+                facade: deps.facade
+            });
+
+            // 3. Create cognitive middleware (wraps tinyaleph CognitiveCore)
+            // Disable guard/recall/memory/evolution features by default because
+            // CognitiveAgent.turn() already handles these phases directly.
+            // Enabling them here would cause double-processing of the cognitive
+            // state (processInput, checkSafety, recall, remember, tick).
+            const cognitiveMiddleware = createCognitiveMiddleware(
+                this._agent.cognitive,  // CognitiveCore instance
+                {
+                    enableGuard: false,
+                    enableRecall: false,
+                    enableMemory: false,
+                    enableEvolution: false,
+                    ...(lmConfig.middleware || {})
+                }
+            );
+
+            // 4. Create event bus transport
+            const eventBusTransport = createEventBusTransport(
+                deps.eventBus,
+                lmConfig.logger || {}
+            );
+
+            // 5. Build MiddlewareManager and register cognitive hooks
+            const middlewareManager = new MiddlewareManager();
+            middlewareManager.use(cognitiveMiddleware.toHooks());
+
+            // 6. Build Logger with event bus transport
+            const logger = new Logger({
+                transports: [eventBusTransport]
+            });
+
+            // 7. Create LScriptRuntime with full feature stack
+            const runtime = new LScriptRuntime({
+                provider: llmProvider,
+                middleware: middlewareManager,
+                logger
+            });
+
+            // 8. Wire into agent
+            this._agent.initRuntime({
+                runtime,
+                toolBridge,
+                cognitiveMiddleware,
+                eventBusTransport
+            });
+
+            // Store references for dispose/diagnostics
+            this._runtime = runtime;
+            this._llmProvider = llmProvider;
+
+            consoleStyler.log('agentic', 'lmscript runtime initialized successfully');
+        } catch (err) {
+            console.warn('[CognitiveProvider] lmscript runtime init failed, using legacy mode:', err.message);
+            // Agent will fall back to _turnLegacy() automatically
+        }
     }
 
     /**
@@ -69,30 +160,54 @@ export class CognitiveProvider extends AgenticProvider {
 
         emitStatus('Starting cognitive processing');
 
-        try {
-            const result = await this._agent.turn(input, { signal: options.signal });
+        // Use the facade's CURRENT historyManager (not the stale captured reference)
+        // because loadConversation() replaces facade.historyManager after provider init.
+        const facade = this._deps.facade;
+        const getHistoryManager = () => facade ? facade.historyManager : this._deps.historyManager;
 
+        try {
+            // 1. Save user message to history IMMEDIATELY before processing
+            const hm = getHistoryManager();
+            if (hm) {
+                hm.addMessage('user', input);
+            }
+
+            // ── 2. Task Decomposition: classify input and possibly plan ─────
+            const plannerConfig = this._agent.config.planner || {};
+            const ws = options?.ws || this._deps.ws;
+            let responseText;
             let streamed = false;
+
+            const useTaskPlanner = plannerConfig.enabled !== false
+                && classifyInput(input, plannerConfig) === 'complex';
+
+            if (useTaskPlanner) {
+                consoleStyler.log('agentic', 'Task classified as complex — generating plan');
+                responseText = await this._runWithPlan(input, options, ws, plannerConfig);
+            } else {
+                // Simple / planner-disabled path — direct turn
+                const result = await this._agent.turn(input, { signal: options.signal });
+                responseText = result.response;
+
+                if (this._deps.eventBus) {
+                    this._deps.eventBus.emitTyped('agentic:cognitive-metadata', result.diagnostics);
+                }
+            }
+
             // If streaming was requested, emit the full response as a single chunk
             if (options.stream && typeof options.onChunk === 'function') {
-                options.onChunk(result.response);
+                options.onChunk(responseText);
                 streamed = true;
             }
 
-            // Sync the final response into ai-man's history manager
-            // so it persists across sessions
+            // 3. Save assistant response to history IMMEDIATELY after receiving it
             emitStatus('Saving conversation history');
-            if (this._deps.historyManager) {
-                this._deps.historyManager.addMessage('user', input);
-                this._deps.historyManager.addMessage('assistant', result.response);
+            const hmAfter = getHistoryManager();
+            if (hmAfter) {
+                hmAfter.addMessage('assistant', responseText);
             }
 
-            // Emit metadata to eventBus if available
-            if (this._deps.eventBus) {
-                this._deps.eventBus.emitTyped('agentic:cognitive-metadata', result.metadata);
-            }
-
-            return { response: result.response, streamed };
+            return { response: responseText, streamed };
         } finally {
             // Ensure the tracker is stopped even if an error occurs
             if (this._agent?.stopTracking) {
@@ -100,6 +215,95 @@ export class CognitiveProvider extends AgenticProvider {
             }
             aiProvider.model = originalModel;
         }
+    }
+
+    /**
+     * Execute a complex request via the task planner.
+     *
+     * 1. Generate a plan via LLM call
+     * 2. Stream the plan to the UI
+     * 3. Execute each step via agent.turn()
+     * 4. Update the UI after each step
+     * 5. Synthesize a final response
+     *
+     * Falls back to a direct turn() if plan generation fails.
+     *
+     * @param {string} input - Original user input
+     * @param {Object} options - Turn options (signal, model, etc.)
+     * @param {import('ws').WebSocket} ws - WebSocket for UI updates
+     * @param {Object} plannerConfig - Planner configuration
+     * @returns {Promise<string>} Final response text
+     * @private
+     */
+    async _runWithPlan(input, options, ws, plannerConfig) {
+        // Generate plan via a lightweight LLM call
+        const callLLM = async (messages, tools, opts) => {
+            return this._agent.callLLM(messages, tools, { ...options, ...opts });
+        };
+
+        const plan = await generatePlan(input, callLLM, {
+            maxSteps: plannerConfig.maxSteps || 10,
+            signal: options.signal,
+        });
+
+        // If plan generation failed, fall back to direct turn
+        if (!plan) {
+            consoleStyler.log('agentic', 'Plan generation failed — falling back to direct turn');
+            const result = await this._agent.turn(input, { signal: options.signal });
+            if (this._deps.eventBus) {
+                this._deps.eventBus.emitTyped('agentic:cognitive-metadata', result.diagnostics);
+            }
+            return result.response;
+        }
+
+        // Send initial plan to UI as a task-plan message
+        const planMessageId = plan.id;
+        if (ws) {
+            wsSend(ws, 'message', {
+                id: planMessageId,
+                role: 'ai',
+                type: 'task-plan',
+                title: plan.title,
+                steps: plan.toUISteps(),
+                planStatus: plan.status,
+                timestamp: new Date().toLocaleString(),
+                _pending: true,
+            });
+        }
+
+        // Execute plan steps
+        const { stepResults } = await executePlan(plan, {
+            executeTurn: async (instruction, opts) => {
+                return this._agent.turn(instruction, { ...options, ...opts });
+            },
+            onUpdate: (updatedPlan) => {
+                // Stream step updates to the UI
+                if (ws) {
+                    wsSendUpdate(ws, planMessageId, {
+                        steps: updatedPlan.toUISteps(),
+                        planStatus: updatedPlan.status,
+                    });
+                }
+            },
+            signal: options.signal,
+            skipDependentOnFailure: plannerConfig.skipDependentOnFailure !== false, // default true per config
+        });
+
+        // Synthesize final response
+        const finalResponse = await synthesizeResponse(plan, stepResults, callLLM, {
+            signal: options.signal,
+        });
+
+        // Finalize the plan message (remove _pending flag)
+        if (ws) {
+            wsSendUpdate(ws, planMessageId, {
+                steps: plan.toUISteps(),
+                planStatus: plan.status,
+                _pending: false,
+            });
+        }
+
+        return finalResponse;
     }
 
     /**
@@ -111,11 +315,16 @@ export class CognitiveProvider extends AgenticProvider {
     }
 
     /**
-     * Get cognitive diagnostics.
-     * @returns {Object|null}
+     * Get cognitive and runtime diagnostics.
+     * @returns {Object}
      */
     getDiagnostics() {
-        return this._agent?.getStats() || null;
+        return {
+            hasRuntime: !!this._runtime,
+            circuitState: this._llmProvider?.getCircuitState?.() || 'unknown',
+            agentStats: this._agent?.getStats?.() || {},
+            cognitiveState: this._agent?.cognitive?.getDiagnostics?.() || {}
+        };
     }
 
     async dispose() {
@@ -123,6 +332,8 @@ export class CognitiveProvider extends AgenticProvider {
             this._agent.reset();
             this._agent = null;
         }
+        this._runtime = null;
+        this._llmProvider = null;
         await super.dispose();
     }
 }

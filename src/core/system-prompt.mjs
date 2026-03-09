@@ -128,6 +128,9 @@ Do NOT reinvent solutions from scratch when a skill already covers the domain.`;
     **Response Formatting:**
     Format ALL responses in Markdown. Use code blocks with language identifiers.
     IMPORTANT: HTML in \`\`\`html blocks renders as live previews in the UI.
+    CRITICAL: After using tools, ALWAYS synthesize results into a clear, human-readable response.
+    NEVER dump raw JSON, tool result objects, or {"result":"..."} output into your response.
+    The user expects a natural language summary of what was done and what was found.
 
 **Context Window:**
 You have limited conversation history. To reference earlier content, use \`read_conversation_history\`.

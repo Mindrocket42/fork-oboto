@@ -1,6 +1,6 @@
 {
   "name": "@sschepis/oboto",
-  "version": "1.1.3",
+  "version": "1.2.0",
   "type": "module",
   "description": "Oboto: AI-powered everything assistant",
   "author": "sschepis",
@@ -136,6 +136,7 @@
     "zod": "=3.25.76"
   },
   "optionalDependencies": {
+    "@sschepis/lmscript": "*",
     "@bubblelab/bubble-core": "*",
     "@bubblelab/bubble-runtime": "*",
     "@bubblelab/shared-schemas": "*",

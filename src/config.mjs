@@ -56,7 +56,7 @@ export const config = {
         model: _detectedProvider === 'gemini' ? _aiModel : DEFAULT_MODELS.gemini,
       },
       anthropic: {
-        enabled: _detectedProvider === 'anthropic' || !!process.env.ANTHROPIC_API_KEY,
+        enabled: _detectedProvider === 'anthropic' || !!(process.env.ANTHROPIC_API_KEY || process.env.VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT),
         model: _detectedProvider === 'anthropic' ? _aiModel : DEFAULT_MODELS.anthropic,
       },
       lmstudio: {

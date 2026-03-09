@@ -108,13 +108,14 @@ async function handleChat(data, ctx) {
     }
 
     try {
-        const responseText = await assistant.run(surfaceContextInput, { signal: activeRef.controller.signal, model: modelOverride });
+        const responseText = await assistant.run(surfaceContextInput, { signal: activeRef.controller.signal, model: modelOverride, ws });
         
         sendAiMessage(ws, processContentForUI(responseText));
 
-        // Persist the conversation to disk immediately so the exchange
-        // survives server restarts or crashes.  Fire-and-forget to avoid
-        // blocking the status transition to 'idle'.
+        // Persist the conversation to disk as a safety net.
+        // Runs in background to avoid blocking the UI status transition to 'idle'.
+        // The agentic provider already saves user + assistant messages, so this
+        // is a redundant safety net — fire-and-forget is acceptable.
         assistant.saveConversation().catch((e) => {
             consoleStyler.log('error', `Failed to save conversation: ${e.message}`);
         });

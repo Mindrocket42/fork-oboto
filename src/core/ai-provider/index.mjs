@@ -3,6 +3,7 @@ import { detectProvider, getEndpoint, getAuthHeaders, createProviderContext, get
 import { isCancellationError, isRetryableError, withRetry } from './utils.mjs';
 import { callGeminiSDK, callGeminiSDKStream } from './adapters/gemini.mjs';
 import { callOpenAIREST, callOpenAIRESTStream, transformRequestBody } from './adapters/openai.mjs';
+import { callAnthropicREST, callAnthropicRESTStream } from './adapters/anthropic.mjs';
 import { callWebLLM, setEventBusRef as setWebLLMEventBusRef } from './adapters/webllm.mjs';
 import { callCloudProxy, callCloudProxyStream, setCloudSyncRef, setEventBusRefForCloud } from './adapters/cloud.mjs';
 
@@ -56,6 +57,11 @@ export async function callProvider(requestBody, options = {}) {
         return await callGeminiSDK(ctx, requestBody, options.signal);
     }
 
+    // ── Anthropic: use native REST adapter ──
+    if (ctx.provider === AI_PROVIDERS.ANTHROPIC) {
+        return await callAnthropicREST(ctx, requestBody, options.signal);
+    }
+
     // ── OpenAI / Local: use REST fetch ──
     return await callOpenAIREST(ctx, requestBody, options.signal);
 }
@@ -81,6 +87,11 @@ export async function callProviderStream(requestBody, options = {}) {
     // ── Gemini: use SDK (non-streaming, wrapped as synthetic stream) ──
     if (ctx.provider === AI_PROVIDERS.GEMINI) {
         return await callGeminiSDKStream(ctx, requestBody, options.signal);
+    }
+
+    // ── Anthropic: use native REST SSE adapter ──
+    if (ctx.provider === AI_PROVIDERS.ANTHROPIC) {
+        return await callAnthropicRESTStream(ctx, requestBody, options.signal);
     }
 
     // ── OpenAI / Local: use REST SSE ──

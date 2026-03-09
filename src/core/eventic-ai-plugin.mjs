@@ -38,8 +38,12 @@ export class EventicAIProvider {
             messages.push({ role: 'system', content: activeSystemPrompt });
         }
         
-        // Append previous history
-        messages.push(...this.conversationHistory);
+        // Append previous history — but skip when recordHistory is false,
+        // since these are stateless utility calls (e.g. next-steps generation)
+        // that must not be contaminated by the main conversation context.
+        if (options.recordHistory !== false) {
+            messages.push(...this.conversationHistory);
+        }
         
         let fullPrompt = prompt;
         // If JSON format is requested but no schema is provided, explicitly instruct the model

@@ -698,6 +698,10 @@ export class ToolExecutor {
 
     // Write file wrapper
     async writeFileWithValidation(args) {
+        if (args.content === undefined || args.content === null) {
+            return `Error: No content provided for write_file (path: ${args.path || '(none)'})`;
+        }
+
         if (this.dryRun) {
             return dryRunGuard(this.dryRun, this._plannedChanges, {
                 type: 'write',

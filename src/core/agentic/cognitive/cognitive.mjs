@@ -15,7 +15,7 @@ import {
   SedenionMemoryField, SMF_AXES,
   PRSCLayer,
   HolographicEncoder,
-  AgencyLayer, Goal, Action,
+  AgencyLayer, Goal,
   BoundaryLayer,
   SafetyConstraint,
   TemporalLayer,

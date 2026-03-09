@@ -1,7 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Folder, FileText, FolderOpen, Copy, Trash2, ExternalLink, Files } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ChevronRight, Folder, FileText, FolderOpen, Copy, Trash2, ExternalLink, Files, X, RefreshCw, ChevronsDown, ChevronsUp } from 'lucide-react';
 import type { FileNode } from '../../hooks/useChat';
 import { wsService } from '../../services/wsService';
+
+function globToRegex(pattern: string): RegExp {
+  if (!pattern) return new RegExp('');
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // escape regex special chars (but NOT * and ?)
+    .replace(/\*/g, '.*')                    // glob * → regex .*
+    .replace(/\?/g, '.');                    // glob ? → regex .
+  return new RegExp(escaped, 'i');            // case-insensitive
+}
+
+function filterTree(nodes: FileNode[], regex: RegExp): FileNode[] {
+  return nodes.reduce<FileNode[]>((acc, node) => {
+    if (node.type === 'file') {
+      if (regex.test(node.name)) acc.push(node);
+    } else {
+      const filteredChildren = filterTree(node.children || [], regex);
+      if (filteredChildren.length > 0) {
+        acc.push({ ...node, children: filteredChildren });
+      }
+    }
+    return acc;
+  }, []);
+}
 
 interface FileTreeNodeProps {
   node: FileNode;
@@ -9,13 +32,17 @@ interface FileTreeNodeProps {
   parentPath: string;
   onFileClick?: (filePath: string) => void;
   onContextMenu: (e: React.MouseEvent, path: string, type: 'file' | 'directory') => void;
+  forceExpand?: boolean;
+  /** When true, all directories start expanded; when false, all start collapsed */
+  defaultExpanded?: boolean;
 }
 
-const FileTreeNode: React.FC<FileTreeNodeProps> = ({ node, depth, parentPath, onFileClick, onContextMenu }) => {
-  const [isOpen, setIsOpen] = useState(depth < 1);
+const FileTreeNode: React.FC<FileTreeNodeProps> = ({ node, depth, parentPath, onFileClick, onContextMenu, forceExpand, defaultExpanded }) => {
+  const [isOpen, setIsOpen] = useState(defaultExpanded !== undefined ? defaultExpanded : depth < 1);
   const isDir = node.type === 'directory';
   const hasChildren = isDir && node.children && node.children.length > 0;
   const fullPath = parentPath ? `${parentPath}/${node.name}` : node.name;
+  const effectiveOpen = forceExpand || isOpen;
 
   const handleClick = () => {
     if (isDir) {
@@ -65,11 +92,11 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({ node, depth, parentPath, on
         
         {isDir ? (
           <>
-            <ChevronRight 
-              size={10} 
-              className={`text-zinc-600 shrink-0 transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`} 
+            <ChevronRight
+              size={10}
+              className={`text-zinc-600 shrink-0 transition-transform duration-150 ${effectiveOpen ? 'rotate-90' : ''}`}
             />
-            {isOpen ? (
+            {effectiveOpen ? (
               <FolderOpen size={12} className="text-amber-500/60 shrink-0" />
             ) : (
               <Folder size={12} className="text-amber-500/50 shrink-0" />
@@ -92,15 +119,17 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({ node, depth, parentPath, on
       
       {/* Children with collapse transition */}
       {isDir && hasChildren && (
-        <div className={`overflow-hidden transition-all duration-150 ${isOpen ? 'max-h-[9999px] opacity-100' : 'max-h-0 opacity-0'}`}>
+        <div className={`overflow-hidden transition-all duration-150 ${effectiveOpen ? 'max-h-[9999px] opacity-100' : 'max-h-0 opacity-0'}`}>
           {node.children!.map((child, i) => (
-            <FileTreeNode 
-              key={`${child.name}-${i}`} 
-              node={child} 
-              depth={depth + 1} 
-              parentPath={fullPath} 
+            <FileTreeNode
+              key={`${child.name}-${i}`}
+              node={child}
+              depth={depth + 1}
+              parentPath={fullPath}
               onFileClick={onFileClick}
               onContextMenu={onContextMenu}
+              forceExpand={forceExpand}
+              defaultExpanded={defaultExpanded}
             />
           ))}
         </div>
@@ -123,7 +152,34 @@ interface ContextMenuState {
 
 const FileTree: React.FC<FileTreeProps> = ({ files, onFileClick }) => {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [filterPattern, setFilterPattern] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  /** Incremented to force tree remount on expand/collapse all */
+  const [treeKey, setTreeKey] = useState(0);
+  /** undefined = default (depth < 1), true = expand all, false = collapse all */
+  const [defaultExpanded, setDefaultExpanded] = useState<boolean | undefined>(undefined);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const handleExpandAll = useCallback(() => {
+    setDefaultExpanded(true);
+    setTreeKey(k => k + 1);
+  }, []);
+
+  const handleCollapseAll = useCallback(() => {
+    setDefaultExpanded(false);
+    setTreeKey(k => k + 1);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    wsService.getFiles();
+    // Reset the spinner after a short delay (the file-tree event will update the tree)
+    setTimeout(() => setIsRefreshing(false), 800);
+  }, []);
+
+  const filteredFiles = filterPattern
+    ? filterTree(files, globToRegex(filterPattern))
+    : files;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -194,18 +250,71 @@ const FileTree: React.FC<FileTreeProps> = ({ files, onFileClick }) => {
 
   return (
     <div className="space-y-0 relative">
-      <h4 className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.15em] mb-2 px-1">
-        Workspace Files
-      </h4>
+      <div className="flex items-center justify-between mb-2 px-1">
+        <h4 className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.15em]">
+          Workspace Files
+        </h4>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={handleExpandAll}
+            className="p-1 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-all duration-150 cursor-pointer"
+            aria-label="Expand all"
+            title="Expand all"
+          >
+            <ChevronsDown size={11} />
+          </button>
+          <button
+            onClick={handleCollapseAll}
+            className="p-1 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-all duration-150 cursor-pointer"
+            aria-label="Collapse all"
+            title="Collapse all"
+          >
+            <ChevronsUp size={11} />
+          </button>
+          <button
+            onClick={handleRefresh}
+            className="p-1 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-all duration-150 cursor-pointer"
+            aria-label="Refresh file tree"
+            title="Refresh file tree"
+          >
+            <RefreshCw size={11} className={isRefreshing ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+      <div className="px-1 py-1 relative">
+        <input
+          type="text"
+          placeholder="Filter files... (e.g. *.tsx, config*)"
+          value={filterPattern}
+          onChange={(e) => setFilterPattern(e.target.value)}
+          className="w-full px-2 py-1 text-xs bg-zinc-800 border border-zinc-700 rounded text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+        />
+        {filterPattern && (
+          <button
+            onClick={() => setFilterPattern('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors duration-100"
+            aria-label="Clear filter"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
       <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
-        {files.map((node, i) => (
-          <FileTreeNode 
-            key={`${node.name}-${i}`} 
-            node={node} 
-            depth={0} 
-            parentPath="" 
+        {filteredFiles.length === 0 && filterPattern && (
+          <div className="px-3 py-2 text-xs text-zinc-500 italic">
+            No files match &quot;{filterPattern}&quot;
+          </div>
+        )}
+        {filteredFiles.map((node, i) => (
+          <FileTreeNode
+            key={`${node.name}-${i}-${treeKey}`}
+            node={node}
+            depth={0}
+            parentPath=""
             onFileClick={onFileClick}
             onContextMenu={handleContextMenu}
+            forceExpand={!!filterPattern}
+            defaultExpanded={defaultExpanded}
           />
         ))}
       </div>

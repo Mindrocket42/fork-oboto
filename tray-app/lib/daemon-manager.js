@@ -11,12 +11,44 @@ const { EventEmitter } = require('events');
 const { fork } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
 const WebSocket = require('ws');
 
 /** Strip ANSI escape codes (CSI sequences, OSC sequences, hyperlinks, etc.) from a string. */
 function stripAnsi(str) {
     // eslint-disable-next-line no-control-regex
     return str.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07\x1B]*(?:\x07|\x1B\\))/g, '');
+}
+
+/**
+ * Check whether a TCP port is available (not in use).
+ * @param {number} port
+ * @returns {Promise<boolean>} true if the port is free
+ */
+function isPortFree(port) {
+    return new Promise((resolve) => {
+        const tester = net.createServer()
+            .once('error', () => resolve(false))
+            .once('listening', () => {
+                tester.close(() => resolve(true));
+            })
+            .listen(port);
+    });
+}
+
+/**
+ * Find the first free port starting from `startPort`, trying up to `maxAttempts` ports.
+ * @param {number} startPort
+ * @param {number} [maxAttempts=20]
+ * @returns {Promise<number>} the first available port
+ * @throws if no free port is found within the range
+ */
+async function findFreePort(startPort, maxAttempts = 20) {
+    for (let i = 0; i < maxAttempts; i++) {
+        const port = startPort + i;
+        if (await isPortFree(port)) return port;
+    }
+    throw new Error(`No free port found in range ${startPort}–${startPort + maxAttempts - 1}`);
 }
 
 /** How long to wait for a graceful shutdown before SIGKILL. */
@@ -64,7 +96,22 @@ class DaemonManager extends EventEmitter {
         }
 
         this.workspacePath = workspacePath;
-        this.port = port || this.preferences.get('port') || 3000;
+        const preferredPort = port || this.preferences.get('port') || 3000;
+
+        // Find a free port, starting from the preferred one
+        try {
+            this.port = await findFreePort(preferredPort);
+            if (this.port !== preferredPort) {
+                this.emit('log', `[daemon] Port ${preferredPort} is in use — using port ${this.port} instead`);
+                this.emit('port-changed', this.port, preferredPort);
+            }
+        } catch (err) {
+            this.emit('log', `[daemon] No free port found starting from ${preferredPort}: ${err.message}`);
+            this.state = 'error';
+            this.emit('state-changed', this.state);
+            throw err;
+        }
+
         this.state = 'starting';
         this.emit('state-changed', this.state);
 

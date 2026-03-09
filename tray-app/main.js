@@ -65,7 +65,8 @@ function buildContextMenu() {
     const hasWorkspace = !!currentWorkspace;
     const isRunning = daemon.state === 'running' && daemon.serverProcess !== null;
     const recentWorkspaces = preferences.getRecentWorkspaces();
-    const port = preferences.get('port') || 3000;
+    // Use the daemon's actual port (which may differ from preferred if auto-selected)
+    const port = daemon.port || preferences.get('port') || 3000;
 
     // Build recent workspaces submenu
     const recentItems = recentWorkspaces
@@ -258,7 +259,8 @@ app.whenReady().then(async () => {
                 // Auto-open browser if a workspace was just loaded
                 if (_pendingBrowserOpen) {
                     _pendingBrowserOpen = false;
-                    const port = preferences.get('port') || 3000;
+                    // Use daemon's actual port (may differ from preferred if auto-selected)
+                    const port = daemon.port || preferences.get('port') || 3000;
                     shell.openExternal(`http://localhost:${port}`);
                 }
                 break;
@@ -293,6 +295,17 @@ app.whenReady().then(async () => {
                 body: `${payload.description || 'A task'} failed: ${payload.error || 'unknown error'}`,
             }).show();
         }
+    });
+
+    daemon.on('port-changed', (actualPort, preferredPort) => {
+        if (Notification.isSupported()) {
+            new Notification({
+                title: 'Oboto',
+                body: `Port ${preferredPort} was in use — running on port ${actualPort} instead.`,
+            }).show();
+        }
+        // Refresh the menu so "Open in Browser" uses the actual port
+        refreshMenu();
     });
 
     daemon.on('log', (line) => {

@@ -56,11 +56,11 @@ class Logger {
     /**
      * Write a pre-formatted line (e.g. daemon output that already carries its
      * own tags/emojis) without adding a level/tag prefix.  Still respects the
-     * minimum log level (treated as debug) and writes to file + stderr.
+     * minimum log level (treated as info) and writes to file + stderr.
      * @param {string} line
      */
     passthrough(line) {
-        if (LOG_LEVELS.debug < LOG_LEVELS[this.level]) return;
+        if (LOG_LEVELS.info < LOG_LEVELS[this.level]) return;
 
         if (this._stderrEnabled) {
             process.stderr.write(line + '\n');

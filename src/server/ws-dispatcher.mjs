@@ -46,6 +46,9 @@ export class WsDispatcher {
      * @returns {Promise<boolean>} true if a handler was found and invoked
      */
     async dispatch(data, ctx) {
+        if (!data || typeof data.type !== 'string') {
+            return false; // Silently reject messages without a valid type field
+        }
         const handler = this._handlers.get(data.type);
         if (handler) {
             try {

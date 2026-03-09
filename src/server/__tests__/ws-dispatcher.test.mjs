@@ -216,12 +216,22 @@ describe('WsDispatcher', () => {
             expect(result).toBe(false);
         });
 
-        it('can register and dispatch with numeric type (uncommon)', async () => {
+        it('rejects dispatch with numeric type (only string types accepted)', async () => {
             const handler = jest.fn().mockImplementation(async () => {});
             dispatcher.register(42, handler);
             const result = await dispatcher.dispatch({ type: 42 }, {});
-            expect(result).toBe(true);
-            expect(handler).toHaveBeenCalled();
+            expect(result).toBe(false);
+            expect(handler).not.toHaveBeenCalled();
+        });
+
+        it('rejects dispatch when data is null', async () => {
+            const result = await dispatcher.dispatch(null, {});
+            expect(result).toBe(false);
+        });
+
+        it('rejects dispatch when data is undefined', async () => {
+            const result = await dispatcher.dispatch(undefined, {});
+            expect(result).toBe(false);
         });
 
         it('can register handler that returns a value (ignored by dispatch)', async () => {

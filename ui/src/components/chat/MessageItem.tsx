@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Bot, Terminal, Copy, Trash2, RefreshCw, Pencil, Check, X, Loader2 } from 'lucide-react';
+import { Bot, Terminal, Copy, Trash2, RefreshCw, Pencil, Check, X, Loader2, ListChecks, CheckCircle2, XCircle, CircleDashed, SkipForward, Loader } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import ToolCall from '../features/ToolCall';
 import NeuralVisualization from '../features/NeuralVisualization';
@@ -288,6 +288,69 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, actions, userLabel =
         {/* Background tasks */}
         {message.type === 'background-tasks' && (
            <BackgroundSubstrate tasks={message.tasks || []} />
+        )}
+
+        {/* Task plan (structured task decomposition) */}
+        {message.type === 'task-plan' && message.steps && (
+          <div className="w-full bg-[#111111] border border-zinc-800/40 rounded-2xl overflow-hidden shadow-lg shadow-black/20 transition-all duration-300 hover:border-zinc-700/50">
+            <div className="px-5 py-3 border-b border-zinc-800/30 bg-zinc-900/20 flex items-center gap-2">
+              <ListChecks size={14} className="text-indigo-400" />
+              <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-zinc-300">
+                {message.title || 'Task Plan'}
+              </span>
+              {message.planStatus && (
+                <span className={`ml-auto text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                  message.planStatus === 'completed' ? 'bg-emerald-500/10 text-emerald-400'
+                  : message.planStatus === 'failed' ? 'bg-red-500/10 text-red-400'
+                  : message.planStatus === 'cancelled' ? 'bg-amber-500/10 text-amber-400'
+                  : message.planStatus === 'executing' ? 'bg-indigo-500/10 text-indigo-400'
+                  : 'bg-zinc-500/10 text-zinc-500'
+                }`}>
+                  {message.planStatus}
+                </span>
+              )}
+            </div>
+            <div className="divide-y divide-zinc-800/20">
+              {message.steps.map((step, idx) => {
+                const icon = step.status === 'done'
+                  ? <CheckCircle2 size={14} className="text-emerald-400 flex-shrink-0" />
+                  : step.status === 'failed'
+                  ? <XCircle size={14} className="text-red-400 flex-shrink-0" />
+                  : step.status === 'running'
+                  ? <Loader size={14} className="text-indigo-400 animate-spin flex-shrink-0" />
+                  : step.status === 'skipped'
+                  ? <SkipForward size={14} className="text-zinc-600 flex-shrink-0" />
+                  : <CircleDashed size={14} className="text-zinc-600 flex-shrink-0" />;
+
+                return (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-3 px-5 py-3 transition-colors duration-150 ${
+                      step.status === 'running' ? 'bg-indigo-500/5' : 'hover:bg-zinc-800/10'
+                    }`}
+                  >
+                    {icon}
+                    <span className={`text-[13px] ${
+                      step.status === 'done' ? 'text-zinc-300'
+                      : step.status === 'failed' ? 'text-red-300'
+                      : step.status === 'running' ? 'text-indigo-300 font-medium'
+                      : step.status === 'skipped' ? 'text-zinc-600 line-through'
+                      : 'text-zinc-500'
+                    }`}>
+                      {step.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Pending indicator while plan is still executing */}
+            {message._pending && (
+              <div className="flex items-center gap-2 px-5 py-3 border-t border-zinc-800/30">
+                <Loader2 size={14} className="animate-spin text-indigo-400" />
+                <span className="text-[12px] text-zinc-500">Executing plan…</span>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Agent handoff */}

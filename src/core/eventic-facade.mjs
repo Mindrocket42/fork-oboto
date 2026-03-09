@@ -234,7 +234,8 @@ export class EventicFacade {
             }
             const result = await provider.run(userInput, {
                 signal: options.signal,
-                model: options.model
+                model: options.model,
+                ws: options.ws
             });
             // Providers may return a string or { response, streamed }
             const response = typeof result === 'string' ? result : (result?.response || '');
@@ -564,6 +565,13 @@ export class EventicFacade {
                 this.statePlugin.historyManager = this.historyManager;
             }
 
+            // Sync the active agentic provider's deps so it uses the
+            // current historyManager (prevents stale-reference bugs).
+            const activeProvider = this.agenticRegistry?.getActive?.();
+            if (activeProvider && activeProvider._deps) {
+                activeProvider._deps.historyManager = this.historyManager;
+            }
+
             if (this.eventBus) {
                 this.eventBus.emit('server:history-loaded', this.historyManager.getHistory());
                 this.eventBus.emit('server:conversation-switched', {
@@ -730,14 +738,31 @@ Rules:
 
                 const text = typeof raw === 'string' ? raw : (raw?.content || '');
                 // Extract the outermost JSON array using bracket-depth counting.
-                // A regex approach (greedy or non-greedy) fails on nested brackets.
+                // Try successive '[' positions until one yields valid JSON, to
+                // skip false positives like "[oboto.bot]" or markdown references.
                 const jsonMatch = (() => {
-                    const start = text.indexOf('[');
-                    if (start === -1) return null;
-                    let depth = 0;
-                    for (let i = start; i < text.length; i++) {
-                        if (text[i] === '[') depth++;
-                        else if (text[i] === ']') { depth--; if (depth === 0) return [text.slice(start, i + 1)]; }
+                    let searchFrom = 0;
+                    while (searchFrom < text.length) {
+                        const start = text.indexOf('[', searchFrom);
+                        if (start === -1) return null;
+                        let depth = 0;
+                        for (let i = start; i < text.length; i++) {
+                            if (text[i] === '[') depth++;
+                            else if (text[i] === ']') {
+                                depth--;
+                                if (depth === 0) {
+                                    const candidate = text.slice(start, i + 1);
+                                    try {
+                                        JSON.parse(candidate);
+                                        return [candidate];
+                                    } catch {
+                                        // Not valid JSON — try the next '[' position
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        searchFrom = start + 1;
                     }
                     return null;
                 })();

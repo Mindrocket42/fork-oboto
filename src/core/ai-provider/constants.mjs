@@ -18,7 +18,7 @@ export const PROVIDER_ENDPOINTS = {
     [AI_PROVIDERS.OPENAI]: 'https://api.openai.com/v1/chat/completions',
     // Gemini uses SDK, not REST endpoint — this is only a fallback
     [AI_PROVIDERS.GEMINI]: null,
-    // Anthropic via Vertex uses SDK
+    // Anthropic: managed by @anthropic-ai/vertex-sdk — no direct endpoint needed
     [AI_PROVIDERS.ANTHROPIC]: null,
 };
 

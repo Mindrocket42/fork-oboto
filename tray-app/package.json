@@ -1,6 +1,6 @@
 {
   "name": "oboto-tray",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Oboto system tray service — manages the background AI daemon",
   "main": "main.js",
   "private": true,
@@ -11,9 +11,10 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win",
-    "build:all": "electron-builder --mac --win"
+    "prebuild": "node scripts/prebuild.js",
+    "build:mac": "npm run prebuild && electron-builder --mac",
+    "build:win": "npm run prebuild && electron-builder --win",
+    "build:all": "npm run prebuild && electron-builder --mac --win"
   },
   "build": {
     "appId": "com.oboto.tray",

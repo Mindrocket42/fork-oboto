@@ -176,6 +176,13 @@ export class ClientConnectionHandler {
     async handleMessage(ws, message) {
         try {
             const data = JSON.parse(message);
+
+            // Skip messages without a valid type — these are typically
+            // acknowledgment / heartbeat frames and are not actionable.
+            if (!data || typeof data.type !== 'string') {
+                return;
+            }
+
             const ctx = {
                 ws,
                 assistant: this.assistant,
@@ -195,7 +202,22 @@ export class ClientConnectionHandler {
             
             const handled = await this.dispatcher.dispatch(data, ctx);
             if (!handled) {
-                consoleStyler.log('warning', `Unknown WebSocket message type: ${data.type}`);
+                // Rate-limit unknown-type warnings to avoid log flooding
+                const now = Date.now();
+                const key = data.type;
+                if (!this._unknownTypeTimestamps) this._unknownTypeTimestamps = new Map();
+                // Evict stale entries (older than 60s) to prevent unbounded growth
+                if (this._unknownTypeTimestamps.size > 50) {
+                    const staleThreshold = now - 60000;
+                    for (const [k, v] of this._unknownTypeTimestamps) {
+                        if (v < staleThreshold) this._unknownTypeTimestamps.delete(k);
+                    }
+                }
+                const lastWarned = this._unknownTypeTimestamps.get(key) || 0;
+                if (now - lastWarned > 5000) { // warn at most once per 5 seconds per type
+                    this._unknownTypeTimestamps.set(key, now);
+                    consoleStyler.log('warning', `Unknown WebSocket message type: ${data.type}`);
+                }
             }
         } catch (error) {
             consoleStyler.log('error', `WebSocket error: ${error.message}`);

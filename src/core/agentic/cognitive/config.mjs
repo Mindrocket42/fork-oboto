@@ -40,6 +40,65 @@ CRITICAL RULES:
 5. NEVER make up code examples or file contents. Only cite what you have actually read.
 6. When comparing files, highlight specific differences and similarities with line references or function names.`,
     objectivityThreshold: 0.6
+  },
+  lmscript: {
+    // Budget configuration for CostTracker
+    budget: {
+      maxTotalCost: null,        // null = unlimited, or number (e.g. 1.0 for $1 max)
+      maxCostPerExecution: null,  // null = unlimited, or per-turn cost limit
+      costPerToken: {
+        input: 0.000003,         // default ~$3/1M tokens (GPT-4o-mini level)
+        output: 0.000015         // default ~$15/1M tokens
+      },
+      warnAtPercentage: 80       // emit warning when this % of budget used
+    },
+
+    // Rate limiter configuration
+    rateLimit: {
+      maxRequests: 60,           // max requests per window
+      windowMs: 60000,           // window size in ms (1 minute)
+      retryAfterMs: 1000         // delay before retrying after rate limit hit
+    },
+
+    // Circuit breaker configuration for LLM provider resilience
+    circuitBreaker: {
+      maxFailures: 5,            // failures before circuit opens
+      resetTimeoutMs: 30000,     // time before trying again (30s)
+      halfOpenMax: 2             // successful requests needed to close circuit
+    },
+
+    // Context window management
+    context: {
+      maxTokens: 128000,         // max context window size
+      pruneStrategy: 'summarize', // 'fifo' or 'summarize'
+      reserveTokens: 4096,       // tokens reserved for response
+      summaryModel: null         // model for summarization (null = use same model)
+    },
+
+    // Logger configuration
+    logger: {
+      minLevel: 'info',          // 'debug', 'info', 'warn', 'error'
+      enableSpans: true,         // enable span-based tracing
+      emitStatus: true           // bridge to eventBus status events
+    },
+
+    // CognitiveAgent.turn() handles the cognitive phases (guard, recall,
+    // memory, evolution) directly, so middleware hooks are disabled by
+    // default to avoid double-processing.  Set to true only if using
+    // lmscript middleware without the CognitiveAgent wrapper.
+    middleware: {
+      enableGuard: false,
+      enableRecall: false,
+      enableMemory: false,
+      enableEvolution: false
+    }
+  },
+  planner: {
+    enabled: true,               // feature flag — set false to disable task decomposition
+    maxSteps: 10,                // max steps in a generated plan
+    minComplexityWords: 20,      // min words for heuristic complexity check
+    autoRetryFailedSteps: false, // auto-retry failed steps (not yet implemented)
+    skipDependentOnFailure: true // skip steps that depend on failed ones
   }
 };
 

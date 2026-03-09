@@ -1,5 +1,5 @@
 export type Role = 'user' | 'ai';
-export type MessageType = 'text' | 'image' | 'table' | 'log' | 'tool-call' | 'visualization' | 'html-sandbox' | 'survey' | 'agent-execution' | 'approval' | 'background-tasks' | 'agent-handoff' | 'code-diff' | 'telemetry' | 'search' | 'terminal' | 'secret-request' | 'test-results' | 'browser-preview' | 'embed';
+export type MessageType = 'text' | 'image' | 'table' | 'log' | 'tool-call' | 'visualization' | 'html-sandbox' | 'survey' | 'agent-execution' | 'approval' | 'background-tasks' | 'agent-handoff' | 'code-diff' | 'telemetry' | 'search' | 'terminal' | 'secret-request' | 'test-results' | 'browser-preview' | 'embed' | 'task-plan';
 
 /**
  * Supported embedded object types for inline rendering in chat.
@@ -43,7 +43,7 @@ export interface EmbeddedObject {
 
 export interface Step {
   label: string;
-  status: 'done' | 'pending' | 'failed';
+  status: 'done' | 'pending' | 'failed' | 'running' | 'skipped';
 }
 
 export interface Task {
@@ -114,6 +114,7 @@ export interface Message {
   
   steps?: Step[];
   status?: string; // For agent-execution
+  planStatus?: 'planning' | 'executing' | 'completed' | 'failed' | 'cancelled'; // For task-plan
 
   // For ThinkingStream
   thoughts?: string;
