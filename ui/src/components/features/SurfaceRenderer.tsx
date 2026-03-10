@@ -99,7 +99,7 @@ export const SurfaceRenderer: React.FC<SurfaceRendererProps> = ({
   const handleDelete = useCallback(() => {
     if (!data) return;
     if (confirm(`Are you sure you want to delete "${data.name}"?`)) {
-      wsService.sendMessage('delete_surface', { surface_id: surfaceId });
+      wsService.deleteSurface(surfaceId);
       onDelete?.(surfaceId);
     }
   }, [data, surfaceId, onDelete]);

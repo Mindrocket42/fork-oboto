@@ -241,8 +241,7 @@ export function useTabManager(
 
   // Pin toggle handler
   const handlePinSurface = useCallback((id: string) => {
-      // TODO: Implement pin logic
-      console.log('Toggle pin', id);
+    wsService.pinSurface(id);
   }, []);
 
   // Open a plugin welcome page tab

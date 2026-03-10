@@ -126,7 +126,7 @@ export class ElevenLabsProvider {
   }
 
   async textToSpeech({ text, voiceId, model, stability, similarityBoost, style, useSpeakerBoost }) {
-    const defaultVoiceId = await this.api.settings.get('elevenlabsDefaultVoiceId') || '21m00Tcm4TlvDq8ikWAM';
+    const defaultVoiceId = await this.api.settings.get('elevenlabsDefaultVoiceId') || 'tQ4MEZFJOzsahSEEZtHK';
     const defaultModel = 'eleven_multilingual_v2';
     const defaultFormat = 'mp3_44100_128';
     

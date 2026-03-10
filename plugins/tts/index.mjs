@@ -21,7 +21,7 @@ const execFileAsync = util.promisify(execFile);
 
 const DEFAULT_SETTINGS = {
     elevenlabsApiKey: '',
-    defaultVoiceId: '21m00Tcm4TlvDq8ikWAM',
+    defaultVoiceId: 'tQ4MEZFJOzsahSEEZtHK',
     defaultModel: 'eleven_monolingual_v1',
     outputFormat: 'mp3_44100_128',
 };

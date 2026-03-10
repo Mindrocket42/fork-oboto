@@ -19,8 +19,8 @@
 
 | Platform | Download | Notes |
 |----------|----------|-------|
-| **macOS** (Apple Silicon) | [Oboto-1.0.0-arm64.dmg](https://github.com/sschepis/oboto/releases/latest) | Code-signed, requires macOS 10.12+ |
-| **macOS** (zip) | [Oboto-1.0.0-arm64-mac.zip](https://github.com/sschepis/oboto/releases/latest) | Portable zip archive |
+| **macOS** (Apple Silicon) | [Oboto-1.2.0-arm64.dmg](https://github.com/sschepis/oboto/releases/latest) | Code-signed, requires macOS 10.12+ |
+| **macOS** (zip) | [Oboto-1.2.0-arm64-mac.zip](https://github.com/sschepis/oboto/releases/latest) | Portable zip archive |
 | **Windows** | [Build via GitHub Actions](https://github.com/sschepis/oboto/actions/workflows/build-windows.yml) | NSIS installer + portable exe |
 
 ## 🚀 Key Features
@@ -31,8 +31,8 @@
 *   **🏗️ Structured Development** — Enforces architectural discipline via a "Living Manifest" (`SYSTEM_MAP.md`), ensuring code changes align with global invariants and design phases.
 
 ### AI Provider Support
-*   **Multi-Provider** — Switch seamlessly between OpenAI, Google Gemini, Anthropic Claude, and local LLM Studio models.
-*   **Model Routing** — Route specific task types (agentic, reasoning, summarization) to different models for cost/quality optimization.
+*   **Multi-Provider** — Switch seamlessly between OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI (Claude on GCP), local LLM Studio, and in-browser WebLLM models.
+*   **Model Routing** — Route specific task types (agentic, reasoning, summarization, code completion) to different models for cost/quality optimization.
 *   **Auto-Detection** — Provider is inferred automatically from the model name or can be set explicitly.
 
 ### Integrations
@@ -57,7 +57,7 @@
 
 ## 🔌 Plugin Ecosystem
 
-Oboto ships with 25+ built-in plugins, each extending capabilities in a specific domain:
+Oboto ships with 30 built-in plugins, each extending capabilities in a specific domain:
 
 | Plugin | Description |
 |--------|-------------|
@@ -74,6 +74,7 @@ Oboto ships with 25+ built-in plugins, each extending capabilities in a specific
 | **knowledge-graph** | Semantic knowledge graph with memory fields |
 | **logger** | Structured logging |
 | **math** | Wolfram-style computation via mathjs |
+| **math-anim** | Animated mathematical explanations using a Manim-inspired DSL |
 | **note-taker** | Note capture and organization |
 | **notification-center** | System notifications |
 | **openclaw** | External agent task delegation |
@@ -130,8 +131,10 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 *   [**First-Run Wizard Strategy**](docs/first-run-wizard-strategy.md) — Onboarding flow design
 *   [**Cloud AI Provider Design**](docs/oboto-cloud-ai-provider-design.md) — Cloud sync and multi-device architecture
 *   [**Skills Settings Tab**](docs/architecture/skills-settings-tab.md) — Managing skills from the UI
+*   [**Project Management**](docs/architecture/project-management.md) — Phase controller, task scheduler, and template registry
 *   [**Tools Reference**](docs/guides/tools.md) — Complete list of available tools and commands
 *   [**UI Surfaces Guide**](docs/guides/ui-surfaces.md) — Dynamic dashboards and UI components
+*   [**Surface Components**](docs/guides/surface-components.md) — Reusable surface-kit UI primitives reference
 *   [**Setup & Installation**](docs/guides/setup.md) — Detailed installation instructions
 *   [**Library API Reference**](src/lib/README.md) — Programmatic API for embedding Oboto
 
@@ -223,7 +226,7 @@ npm run tray
 **macOS DMG:**
 ```bash
 npm run tray:build:mac
-# Output: tray-app/dist/Oboto-1.0.0-arm64.dmg
+# Output: tray-app/dist/Oboto-1.2.0-arm64.dmg
 ```
 
 **Windows Installer:**
@@ -264,7 +267,7 @@ oboto/
 │       ├── hooks/                 # React hooks for state management
 │       ├── services/              # WebSocket service layer
 │       └── surface-kit/           # Reusable UI primitives (charts, data, feedback, overlay)
-├── plugins/                       # 29 built-in plugins (shipped with npm package)
+├── plugins/                       # 30 built-in plugins (shipped with npm package)
 ├── tray-app/                      # Electron system tray application
 ├── chrome-extension/              # Chrome browser controller extension
 ├── skills/                        # Modular skill definitions (SKILL.md)
@@ -370,7 +373,7 @@ Key configuration options in `.env`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AI_MODEL` | `gpt-4o` | AI model to use |
-| `AI_PROVIDER` | auto-detect | Provider: `openai`, `gemini`, `anthropic`, `lmstudio` |
+| `AI_PROVIDER` | auto-detect | Provider: `openai`, `gemini`, `anthropic`, `lmstudio`, `cloud`, `webllm` |
 | `AI_TEMPERATURE` | `0.7` | Response creativity |
 | `AI_MAX_TOKENS` | `4096` | Max response tokens |
 | `AI_MAX_TURNS` | `100` | Max conversation turns per execution |
@@ -382,8 +385,10 @@ Route specific task types to different models for cost/quality optimization:
 ```env
 ROUTE_AGENTIC=gemini-2.5-flash
 ROUTE_REASONING_HIGH=gemini-2.5-pro
+ROUTE_REASONING_MEDIUM=gemini-2.5-flash
 ROUTE_REASONING_LOW=gemini-2.0-flash
 ROUTE_SUMMARIZER=gemini-2.0-flash
+ROUTE_CODE_COMPLETION=gemini-2.0-flash
 ```
 
 ### Secrets Vault
