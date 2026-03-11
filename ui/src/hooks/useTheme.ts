@@ -11,6 +11,8 @@ export interface ThemeState {
   activeTokenOverrides: TokenMap;
   /** Whether custom CSS has been injected */
   hasInjectedCSS: boolean;
+  /** Available theme preset names */
+  availableThemes: string[];
 }
 
 const AI_CSS_STYLE_ID = 'ai-injected-css';
@@ -193,10 +195,15 @@ const THEME_OVERRIDE_CSS = `
 export function useTheme() {
   // Snapshot of original CSS variable values taken on first mount
   const originalVarsRef = useRef<TokenMap | null>(null);
+
   const [themeState, setThemeState] = useState<ThemeState>({
     currentTheme: 'default',
     activeTokenOverrides: {},
     hasInjectedCSS: false,
+    // Available themes are populated from the server via 'get-ui-style-state'
+    // on mount. Using an empty default ensures the server is the single source
+    // of truth and avoids silent drift if themes are added/removed in the plugin.
+    availableThemes: [],
   });
 
   // ── Capture original :root variables on mount ──────────────────────
@@ -353,14 +360,36 @@ export function useTheme() {
 
     // Reset handler
     const handleReset = (payload: unknown) => {
-      const { tokens } = payload as { theme: string; tokens: TokenMap };
+      const { theme, tokens } = payload as { theme: string; tokens: TokenMap };
       clearAllStyling();
       applyTokens(tokens);
-      setThemeState({
-        currentTheme: 'midnight',
+      setThemeState(prev => ({
+        currentTheme: theme || 'default',
         activeTokenOverrides: {},
         hasInjectedCSS: false,
-      });
+        availableThemes: prev.availableThemes,
+      }));
+    };
+
+    // Timers for workspace-switch retry logic — declared here so both
+    // handleStyleState and handleWorkspaceSwitched can access them.
+    const pendingTimers: ReturnType<typeof setTimeout>[] = [];
+
+    // Handle style state response (for available themes list)
+    const handleStyleState = (payload: unknown) => {
+      const data = payload as { availableThemes?: string[]; currentTheme?: string };
+      if (data.availableThemes) {
+        setThemeState(prev => ({
+          ...prev,
+          availableThemes: data.availableThemes!,
+          currentTheme: data.currentTheme || prev.currentTheme,
+        }));
+        // Cancel any pending workspace-switch retry timers — we got a valid
+        // response so further retries are unnecessary and would cause extra
+        // re-renders.
+        pendingTimers.forEach(id => clearTimeout(id));
+        pendingTimers.length = 0;
+      }
     };
 
     // Listen for BOTH event-broadcaster events (unprefixed, e.g. "ui-style-theme")
@@ -377,7 +406,31 @@ export function useTheme() {
     const unsubReset = wsService.on('ui-style-reset', handleReset);
     const unsubResetPlugin = wsService.on('plugin:ui-themes:ui-style:reset', handleReset);
 
+    const unsubStyleState = wsService.on('ui-style-state', handleStyleState);
+    const unsubStyleStatePlugin = wsService.on('plugin:ui-themes:ui-style-state', handleStyleState);
+
+    // Re-request theme state after workspace switch so the UI reflects
+    // the new workspace's persisted theme.
+    const handleWorkspaceSwitched = (payload: unknown) => {
+      const data = payload as { success?: boolean };
+      if (data?.success !== false) {
+        // Retry with increasing delays to handle slow plugin reactivation
+        const delays = [300, 800, 2000];
+        delays.forEach(delay => {
+          pendingTimers.push(
+            setTimeout(() => wsService.sendMessage('get-ui-style-state'), delay)
+          );
+        });
+      }
+    };
+    const unsubWorkspaceSwitched = wsService.on('workspace:switched', handleWorkspaceSwitched);
+
+    // Request current theme state on mount to get availableThemes and currentTheme
+    wsService.sendMessage('get-ui-style-state');
+
     return () => {
+      // Clear any pending workspace-switch retry timers
+      pendingTimers.forEach(id => clearTimeout(id));
       unsubTheme();
       unsubThemePlugin();
       unsubTokens();
@@ -386,6 +439,9 @@ export function useTheme() {
       unsubCSSPlugin();
       unsubReset();
       unsubResetPlugin();
+      unsubStyleState();
+      unsubStyleStatePlugin();
+      unsubWorkspaceSwitched();
     };
   }, [applyTokens, applyInjectedCSS, clearAllStyling]);
 
@@ -400,11 +456,12 @@ export function useTheme() {
       applyTokens(originalVarsRef.current);
     }
 
-    setThemeState({
+    setThemeState(prev => ({
       currentTheme: 'default',
       activeTokenOverrides: {},
       hasInjectedCSS: false,
-    });
+      availableThemes: prev.availableThemes,
+    }));
 
     // Tell the server too, so it knows the state
     wsService.sendMessage('reset-ui-style');

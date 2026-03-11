@@ -20,6 +20,14 @@ export class ShellTools {
 
     async runCommand(args) {
         const { command, cwd, timeout } = args;
+
+        // Validate required 'command' parameter
+        if (!command || typeof command !== 'string' || !command.trim()) {
+            return `Error: The "command" parameter is required and must be a non-empty string. ` +
+                `You called run_command with: ${JSON.stringify(args)}. ` +
+                `Please provide the actual shell command to execute, e.g. run_command({ command: "ls -la" })`;
+        }
+
         const effectiveCwd = cwd || this.workingDir;
         const effectiveTimeout = timeout || this.timeout;
 

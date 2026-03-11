@@ -171,6 +171,17 @@ Animate this concept: ${description}`;
                 // Strip any markdown wrapping the LLM might add
                 code = code.replace(/```json\s*/gi, '').replace(/```mathanim\s*/gi, '').replace(/```/g, '').trim();
 
+                // The LLM sometimes wraps the JSON in explanatory prose.
+                // Extract the outermost JSON object by finding the first '{' and
+                // matching its closing '}'.  This is more robust than assuming
+                // the entire response is pure JSON.
+                const jsonStart = code.indexOf('{');
+                const jsonEnd = code.lastIndexOf('}');
+                if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+                    return 'Error generating math animation: LLM response did not contain a JSON object. Please try again.';
+                }
+                code = code.substring(jsonStart, jsonEnd + 1);
+
                 // Validate it's parseable JSON with the expected structure
                 const parsed = JSON.parse(code);
                 if (!parsed.scenes || !Array.isArray(parsed.scenes) || parsed.scenes.length === 0) {

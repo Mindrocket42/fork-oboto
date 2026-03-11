@@ -447,6 +447,18 @@ export async function activate(api) {
     // Load persisted theme state (overrides default if file exists)
     loadSettings(state);
 
+    // Broadcast restored theme to all connected clients so the frontend
+    // picks up the workspace-specific theme after a workspace switch.
+    // Use setImmediate to ensure WS handlers are registered first.
+    setImmediate(() => {
+        const tokens = THEME_PRESETS[state.currentTheme] || {};
+        const merged = { ...tokens, ...state.activeTokenOverrides };
+        broadcast(state, 'ui-style:theme', { theme: state.currentTheme, tokens: merged });
+        if (state.injectedCSS) {
+            broadcast(state, 'ui-style:css', { css: state.injectedCSS, mode: 'replace' });
+        }
+    });
+
     // ── Register tools ───────────────────────────────────────────────
 
     api.tools.register({

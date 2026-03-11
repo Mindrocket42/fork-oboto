@@ -1,4 +1,4 @@
-import { wsSend, wsSendError } from '../../lib/ws-utils.mjs';
+import { wsSend } from '../../lib/ws-utils.mjs';
 
 /**
  * Handles: set-ui-theme, set-ui-tokens, reset-ui-style, get-ui-style-state
@@ -6,75 +6,55 @@ import { wsSend, wsSendError } from '../../lib/ws-utils.mjs';
  * These WS message types are now handled by the ui-themes plugin which
  * registers its own WS handlers (plugin:ui-themes:set-ui-theme, etc.).
  *
- * The handlers below are kept as thin stubs for backward compatibility
+ * The handlers below are thin forwarding stubs for backward compatibility
  * with older UI clients that may still send the unprefixed message types.
- * They delegate to the plugin's registered tool handlers via the
- * ToolExecutor, which already has the plugin tools registered.
+ * They delegate to the plugin's registered WS handlers by re-dispatching
+ * with the prefixed type through the WsDispatcher.
+ *
+ * IMPORTANT: These stubs must NOT go through toolExecutor.executeTool()
+ * because that emits tool-call-start/end events which the UI renders as
+ * tool call notifications in the chat. Theme/style changes from the
+ * status bar should be completely silent.
  */
 
+/**
+ * Forward a message to the plugin's prefixed WS handler via the dispatcher.
+ * Falls back to a no-op if the plugin handler is not registered.
+ */
+async function forwardToPlugin(data, ctx, pluginType) {
+    const { dispatcher } = ctx;
+    if (!dispatcher) return false;
+
+    // Re-dispatch with the plugin-prefixed type
+    const prefixedData = { ...data, type: pluginType };
+    return await dispatcher.dispatch(prefixedData, ctx);
+}
+
 async function handleSetUITheme(data, ctx) {
-    const { ws, assistant } = ctx;
-    const toolExecutor = assistant?.toolExecutor;
-    if (!toolExecutor) return;
-    try {
-        const toolCall = {
-            id: `compat-set-ui-theme-${Date.now()}`,
-            function: { name: 'set_ui_theme', arguments: JSON.stringify(data.payload || {}) }
-        };
-        await toolExecutor.executeTool(toolCall);
-    } catch (err) {
-        wsSend(ws, 'error', { message: `Theme error: ${err.message}` });
+    const handled = await forwardToPlugin(data, ctx, 'plugin:ui-themes:set-ui-theme');
+    if (!handled) {
+        wsSend(ctx.ws, 'error', { message: 'Theme plugin not available' });
     }
 }
 
 async function handleSetUITokens(data, ctx) {
-    const { ws, assistant } = ctx;
-    const toolExecutor = assistant?.toolExecutor;
-    if (!toolExecutor) return;
-    try {
-        const toolCall = {
-            id: `compat-set-ui-tokens-${Date.now()}`,
-            function: { name: 'set_ui_tokens', arguments: JSON.stringify(data.payload || {}) }
-        };
-        await toolExecutor.executeTool(toolCall);
-    } catch (err) {
-        wsSend(ws, 'error', { message: `Token error: ${err.message}` });
+    const handled = await forwardToPlugin(data, ctx, 'plugin:ui-themes:set-ui-tokens');
+    if (!handled) {
+        wsSend(ctx.ws, 'error', { message: 'Theme plugin not available' });
     }
 }
 
 async function handleResetUIStyle(data, ctx) {
-    const { ws, assistant } = ctx;
-    const toolExecutor = assistant?.toolExecutor;
-    if (!toolExecutor) return;
-    try {
-        const toolCall = {
-            id: `compat-reset-ui-style-${Date.now()}`,
-            function: { name: 'reset_ui_style', arguments: '{}' }
-        };
-        await toolExecutor.executeTool(toolCall);
-    } catch (err) {
-        wsSend(ws, 'error', { message: `Reset error: ${err.message}` });
+    const handled = await forwardToPlugin(data, ctx, 'plugin:ui-themes:reset-ui-style');
+    if (!handled) {
+        wsSend(ctx.ws, 'error', { message: 'Theme plugin not available' });
     }
 }
 
 async function handleGetUIStyleState(data, ctx) {
-    const { ws, assistant } = ctx;
-    const toolExecutor = assistant?.toolExecutor;
-    if (!toolExecutor) return;
-    try {
-        const toolCall = {
-            id: `compat-get-ui-style-state-${Date.now()}`,
-            function: { name: 'get_ui_style_state', arguments: '{}' }
-        };
-        const result = await toolExecutor.executeTool(toolCall);
-        const content = result?.content ?? result ?? '';
-        try {
-            wsSend(ws, 'ui-style-state', JSON.parse(content));
-        } catch {
-            wsSend(ws, 'ui-style-state', {});
-        }
-    } catch (err) {
-        wsSend(ws, 'error', { message: `Style state error: ${err.message}` });
+    const handled = await forwardToPlugin(data, ctx, 'plugin:ui-themes:get-ui-style-state');
+    if (!handled) {
+        wsSend(ctx.ws, 'error', { message: 'Theme plugin not available' });
     }
 }
 

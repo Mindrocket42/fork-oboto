@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, MessageSquare, FileText, Eye, LayoutDashboard, Plus, MessageSquarePlus, FilePlus2, PanelTop, Pencil, Trash2, Eraser, Image as ImageIcon, Puzzle, Code2 } from 'lucide-react';
+import { X, MessageSquare, FileText, Eye, LayoutDashboard, Plus, MessageSquarePlus, FilePlus2, PanelTop, Pencil, Trash2, Eraser, Image as ImageIcon, Puzzle } from 'lucide-react';
 import type { ConversationInfo } from '../../hooks/useChat';
 
 export interface EditorTab {
   id: string;        // 'chat' or file path
   label: string;     // display name
-  type: 'chat' | 'file' | 'html-preview' | 'surface' | 'source-view' | 'image' | 'pdf' | 'plugin';
+  type: 'chat' | 'file' | 'html-preview' | 'surface' | 'image' | 'pdf' | 'plugin';
   filePath?: string;
   surfaceId?: string;
   isDirty?: boolean;
@@ -38,7 +38,6 @@ interface TabBarProps {
   onNewChat?: () => void;
   onNewFile?: () => void;
   onNewSurface?: () => void;
-  onViewSource?: (surfaceId: string) => void;
   // Conversation management
   conversations?: ConversationInfo[];
   activeConversation?: string;
@@ -56,7 +55,6 @@ const TabBar: React.FC<TabBarProps> = ({
   onNewChat,
   onNewFile,
   onNewSurface,
-  onViewSource,
   conversations = [],
   activeConversation = 'chat',
   onSwitchConversation,
@@ -357,7 +355,6 @@ const TabBar: React.FC<TabBarProps> = ({
           const iconColor = isActive
             ? tab.type === 'html-preview' ? 'text-emerald-400'
               : tab.type === 'surface' ? 'text-purple-400'
-              : tab.type === 'source-view' ? 'text-cyan-400'
               : tab.type === 'plugin' ? 'text-teal-400'
               : 'text-amber-400'
             : 'text-zinc-600';
@@ -367,7 +364,7 @@ const TabBar: React.FC<TabBarProps> = ({
               key={tab.id}
               onClick={() => onSelectTab(tab.id)}
               onContextMenu={(e) => {
-                if ((tab.type === 'surface' || tab.type === 'source-view') && tab.surfaceId) {
+                if (tab.type === 'surface' && tab.surfaceId) {
                   e.preventDefault();
                   e.stopPropagation();
                   setSurfaceMenu({
@@ -406,8 +403,6 @@ const TabBar: React.FC<TabBarProps> = ({
                 <Eye size={12} className={`${iconColor} transition-colors duration-200`} />
               ) : tab.type === 'surface' ? (
                 <LayoutDashboard size={12} className={`${iconColor} transition-colors duration-200`} />
-              ) : tab.type === 'source-view' ? (
-                <Code2 size={12} className={`${iconColor} transition-colors duration-200`} />
               ) : tab.type === 'image' ? (
                 <ImageIcon size={12} className={`${iconColor} transition-colors duration-200`} />
               ) : tab.type === 'pdf' ? (
@@ -582,7 +577,7 @@ const TabBar: React.FC<TabBarProps> = ({
         </div>
       )}
 
-      {/* Context menu for surface/source-view tabs */}
+      {/* Context menu for surface tabs */}
       {surfaceMenu.visible && (
         <div
           ref={surfaceMenuRef}
@@ -592,17 +587,6 @@ const TabBar: React.FC<TabBarProps> = ({
             top: Math.min(surfaceMenu.y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 100),
           }}
         >
-          <button
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
-            onClick={() => {
-              setSurfaceMenu(prev => ({ ...prev, visible: false }));
-              onViewSource?.(surfaceMenu.surfaceId);
-            }}
-          >
-            <Code2 size={12} className="text-cyan-400" />
-            View Source
-          </button>
-          <div className="border-t border-zinc-700/50 my-0.5" />
           <button
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
             onClick={() => {

@@ -237,8 +237,12 @@ export class EventicFacade {
                 model: options.model,
                 ws: options.ws
             });
-            // Providers may return a string or { response, streamed }
+            // Providers may return a string or { response, streamed, tokenUsage }
             const response = typeof result === 'string' ? result : (result?.response || '');
+            const tokenUsage = typeof result === 'object' ? result?.tokenUsage : null;
+            // Store token usage on the facade so callers (e.g. chat-handler)
+            // can read it after run() completes.
+            this._lastTokenUsage = tokenUsage || null;
             return response.trim() ? response : 'No response generated.';
         } catch (err) {
             consoleStyler.logError('error', 'Run error', err);

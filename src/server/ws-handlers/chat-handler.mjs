@@ -110,7 +110,9 @@ async function handleChat(data, ctx) {
     try {
         const responseText = await assistant.run(surfaceContextInput, { signal: activeRef.controller.signal, model: modelOverride, ws });
         
-        sendAiMessage(ws, processContentForUI(responseText));
+        // Read token usage stored by the facade during run()
+        const tokenUsage = assistant._lastTokenUsage || null;
+        sendAiMessage(ws, processContentForUI(responseText), tokenUsage ? { tokenUsage } : {});
 
         // Persist the conversation to disk as a safety net.
         // Runs in background to avoid blocking the UI status transition to 'idle'.

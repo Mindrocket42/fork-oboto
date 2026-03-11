@@ -699,7 +699,14 @@ export class ToolExecutor {
     // Write file wrapper
     async writeFileWithValidation(args) {
         if (args.content === undefined || args.content === null) {
-            return `Error: No content provided for write_file (path: ${args.path || '(none)'})`;
+            return `Error: No content provided for write_file (path: ${args.path || '(none)'}). ` +
+                `This usually happens when the content was too large and got truncated during generation. ` +
+                `To fix this, try one of these approaches:\n` +
+                `1. Write the file in smaller sections using multiple write_file calls with append mode\n` +
+                `2. Use edit_file to build the file incrementally\n` +
+                `3. Write a shorter version of the content first, then expand it\n` +
+                `4. Split the content into multiple smaller files\n` +
+                `You MUST retry writing this file - do not give up or just describe what you would write.`;
         }
 
         if (this.dryRun) {

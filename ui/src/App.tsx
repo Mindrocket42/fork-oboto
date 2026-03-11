@@ -24,7 +24,6 @@ import { useChat } from './hooks/useChat';
 import { useSurface } from './hooks/useSurface';
 import { useSecrets } from './hooks/useSecrets';
 import { SurfaceRenderer } from './components/features/SurfaceRenderer';
-import { SurfaceSourceEditor } from './components/features/SurfaceSourceEditor';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useTheme } from './hooks/useTheme';
 import { useDisplayNames } from './hooks/useDisplayNames';
@@ -74,7 +73,7 @@ function App() {
     setInterval: agentLoopSetInterval 
   } = useAgentLoop();
 
-  const { setTheme, resetToOriginal } = useTheme();
+  const { themeState, setTheme, resetToOriginal } = useTheme();
   const { userLabel, agentLabel } = useDisplayNames();
   const { isFirstRun, isLoading: setupLoading } = useSetupWizard();
 
@@ -444,7 +443,6 @@ function App() {
             onRenameConversation={renameConversation}
             onDeleteConversation={deleteConversation}
             onClearConversation={clearConversation}
-            onViewSource={tabManager.handleViewSource}
           />
 
           <div className="flex-1 flex min-h-0 min-w-0 relative">
@@ -535,25 +533,13 @@ function App() {
                   onDelete={() => {
                       tabManager.handleCloseTab(tab.id);
                   }}
-                  onViewSource={tabManager.handleViewSource}
-                />
-              </div>
-            ))}
-
-            {tabManager.tabs.filter(t => t.type === 'source-view').map(tab => (
-              <div
-                key={tab.id}
-                className={`flex-1 flex flex-col w-full min-w-0 min-h-0 ${tabManager.activeTabId === tab.id ? '' : 'hidden'}`}
-              >
-                <SurfaceSourceEditor
-                  surfaceId={tab.surfaceId!}
-                  data={loadedSurfaces[tab.surfaceId!] ?? null}
-                  sources={componentSources}
                   onSave={updateSurface}
                   onRemoveComponent={removeSurfaceComponent}
                 />
               </div>
             ))}
+
+
 
             {tabManager.tabs.filter(t => t.type === 'plugin').map(tab => (
               <div
@@ -606,6 +592,9 @@ function App() {
           runningTaskCount={runningTaskCount}
           onTerminalClick={() => ui.setShowTerminal(p => !p)}
           onConsoleClick={() => setLogPanelOpen(p => !p)}
+          currentTheme={themeState.currentTheme}
+          availableThemes={themeState.availableThemes}
+          onThemeChange={setTheme}
         />
       </div>
 

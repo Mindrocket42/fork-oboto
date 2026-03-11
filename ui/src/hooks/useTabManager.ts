@@ -263,29 +263,6 @@ export function useTabManager(
     }
   }, [tabs]);
 
-  // Open a source-view tab for a surface
-  const handleViewSource = useCallback((surfaceId: string) => {
-    const tabId = `source-view:${surfaceId}`;
-    const existingTab = tabs.find(t => t.id === tabId);
-
-    if (existingTab) {
-      setActiveTabId(tabId);
-    } else {
-      const surface = surfaces.find(s => s.id === surfaceId);
-      const label = surface ? `⟨/⟩ ${surface.name}` : '⟨/⟩ Source';
-      setTabs(prev => [...prev, {
-        id: tabId,
-        label,
-        type: 'source-view' as const,
-        surfaceId,
-      }]);
-      setActiveTabId(tabId);
-    }
-
-    // Ensure surface data is loaded so sources are available
-    loadSurface(surfaceId);
-  }, [tabs, surfaces, loadSurface]);
-
   return {
     tabs,
     setTabs,
@@ -303,7 +280,6 @@ export function useTabManager(
     handleNewSurface,
     handlePluginClick,
     handlePinSurface,
-    handleViewSource,
     CHAT_TAB // Export for workspace state restoration usage
   };
 }

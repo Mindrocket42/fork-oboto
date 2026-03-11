@@ -25,10 +25,31 @@ export const DEFAULT_COGNITIVE_CONFIG = {
   },
   agent: {
     // Maximum sequential tool-call rounds before forcing a text response.
-    // Set to 6 to accommodate multi-step workflows (e.g. read→search→write→verify).
+    // Set to 15 as a reasonable cap for multi-step workflows (reading files,
+    // searching, writing output).  Most tasks complete in 5-10 rounds.
     // NOTE: The agent makes one additional "force text" LLM call after tool rounds
     // exhaust without producing content, so worst-case LLM calls = maxToolRounds + 1.
-    maxToolRounds: 6,
+    // IMPORTANT: This value is used by the LEGACY agent loop only.  The lmscript
+    // path uses maxLmscriptIterations instead (see below).
+    maxToolRounds: 15,
+    // Maximum iterations for the lmscript executeAgent() loop.
+    // Unlike the legacy loop (which has a graceful "needs synthesis" step when
+    // iterations exhaust), lmscript throws a JSON-parse error if the LLM is
+    // still making tool calls when maxIterations is reached.  Keep this value
+    // moderate (8-10) so the agent converges before exhaustion.  The continuation
+    // loop in turn() will re-invoke executeAgent() if more work is needed.
+    maxLmscriptIterations: 10,
+    // Maximum continuation rounds when the LLM announces intent but doesn't act.
+    // If the LLM says "Let me do X" instead of making tool calls or providing a
+    // final answer, the agent will prompt it to continue up to this many times.
+    // Each continuation gets a reduced iteration budget (max 5 iterations).
+    maxContinuations: 3,
+    // Combined ceiling on total LLM calls within a single turn.
+    // Prevents runaway cost from the tool-call + continuation loop.
+    // Practical worst case: maxToolRounds(15) + (maxContinuations(3) × 5) + 1 = 31,
+    // so this ceiling must be >= 31 to avoid prematurely halting tool loops.
+    // Set to 35 for a small safety margin.
+    maxTotalLLMCalls: 35,
     maxHistory: 50,
     systemPrompt: `You are an AI agent with cognitive awareness and tool-calling capabilities. You have access to tools for reading/writing files, listing directories, running commands, checking your cognitive state, and recalling memories.
 

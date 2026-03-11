@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Bot, Terminal, Copy, Trash2, RefreshCw, Pencil, Check, X, Loader2, ListChecks, CheckCircle2, XCircle, CircleDashed, SkipForward, Loader } from 'lucide-react';
+import { Bot, Terminal, Copy, Trash2, RefreshCw, Pencil, Check, X, Loader2, ListChecks, CheckCircle2, XCircle, CircleDashed, SkipForward, Loader, Coins } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import ToolCall from '../features/ToolCall';
 import NeuralVisualization from '../features/NeuralVisualization';
@@ -140,6 +140,19 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, actions, userLabel =
             {isAutoFixRequest ? 'Auto-Fix' : isUser ? userLabel : agentLabel}
           </span>
           <span className="text-[9px] text-zinc-700/60 font-mono">{message.timestamp}</span>
+          {!isUser && message.tokenUsage?.totalTokens && (
+            <span
+              className="flex items-center gap-1 text-[9px] text-zinc-700/50 font-mono"
+              title={[
+                message.tokenUsage.promptTokens != null && `Prompt: ${message.tokenUsage.promptTokens.toLocaleString()}`,
+                message.tokenUsage.completionTokens != null && `Completion: ${message.tokenUsage.completionTokens.toLocaleString()}`,
+                `Total: ${message.tokenUsage.totalTokens.toLocaleString()}`,
+              ].filter(Boolean).join(' · ')}
+            >
+              <Coins size={9} />
+              {message.tokenUsage.totalTokens.toLocaleString()}
+            </span>
+          )}
         </div>
         
         {!isUser && message.thoughts && <ThinkingStream thoughts={message.thoughts} />}

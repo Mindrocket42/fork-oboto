@@ -1,9 +1,11 @@
 /**
  * SurfaceRenderer — Main orchestrator for rendering a surface tab.
  * Delegates to ComponentWrapper for each component, manages lifecycle & layout.
+ * Includes an integrated source editor toggle so users can view/edit source
+ * inline without opening a separate tab.
  */
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Loader2, RefreshCw, Pin, Trash2, LayoutGrid, Code2 } from 'lucide-react';
+import { Loader2, RefreshCw, Pin, Trash2, LayoutGrid, Code2, Eye } from 'lucide-react';
 import type { SurfaceData, SurfaceComponent } from '../../hooks/useSurface';
 import { wsService } from '../../services/wsService';
 import { FlexGridContainer } from '../layout/FlexGrid';
@@ -12,6 +14,7 @@ import { WorkflowStatusBar } from './WorkflowStatusBar';
 import type { Workflow, WorkflowInteraction } from '../../hooks/useWorkflow';
 import { SurfaceLifecycleEmitter, createUseSurfaceLifecycle } from '../../hooks/useSurfaceLifecycle';
 import { ComponentWrapper } from './surface/ComponentWrapper';
+import { SurfaceSourceEditor } from './SurfaceSourceEditor';
 
 export interface SurfaceRendererProps {
   surfaceId: string;
@@ -20,7 +23,10 @@ export interface SurfaceRendererProps {
   onRefresh: () => void;
   onPinToggle?: (id: string) => void;
   onDelete?: (id: string) => void;
-  onViewSource?: (surfaceId: string) => void;
+  /** Called when the user saves a component's source code via the integrated editor. */
+  onSave?: (surfaceId: string, componentName: string, jsxSource: string, props: Record<string, unknown>) => void;
+  /** Called when the user deletes a component via the integrated editor. */
+  onRemoveComponent?: (surfaceId: string, componentName: string) => void;
   isFocused?: boolean;
   workflows?: Workflow[];
   interactions?: WorkflowInteraction[];
@@ -39,13 +45,16 @@ export const SurfaceRenderer: React.FC<SurfaceRendererProps> = ({
   onRefresh,
   onPinToggle,
   onDelete,
-  onViewSource,
+  onSave,
+  onRemoveComponent,
   isFocused = true,
   workflows = [],
   interactions = [],
   onSubmitInteraction,
   onCancelWorkflow,
 }) => {
+  // Toggle between rendered view and inline source editor
+  const [viewMode, setViewMode] = useState<'render' | 'source'>('render');
   const useFlexGrid = isFlexGridLayout(data?.layout);
 
   // ─── Lifecycle ───
@@ -127,11 +136,18 @@ export const SurfaceRenderer: React.FC<SurfaceRendererProps> = ({
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          {onViewSource && (
-            <button onClick={() => onViewSource(surfaceId)} className="p-1.5 hover:bg-cyan-500/20 text-zinc-600 hover:text-cyan-400 rounded transition-colors" title="View / Edit Source">
-              <Code2 size={12} />
-            </button>
-          )}
+          {/* Toggle between rendered view and source editor */}
+          <button
+            onClick={() => setViewMode(prev => prev === 'render' ? 'source' : 'render')}
+            className={`p-1.5 rounded transition-colors ${
+              viewMode === 'source'
+                ? 'bg-cyan-500/20 text-cyan-400'
+                : 'hover:bg-cyan-500/20 text-zinc-600 hover:text-cyan-400'
+            }`}
+            title={viewMode === 'source' ? 'Switch to Rendered View' : 'Edit Source'}
+          >
+            {viewMode === 'source' ? <Eye size={12} /> : <Code2 size={12} />}
+          </button>
           <button onClick={() => onPinToggle?.(surfaceId)} className={`p-1.5 rounded transition-colors ${data.pinned ? 'bg-indigo-500/20 text-indigo-400' : 'hover:bg-zinc-800 text-zinc-600'}`} title={data.pinned ? "Unpin" : "Pin"}>
             <Pin size={12} />
           </button>
@@ -149,8 +165,16 @@ export const SurfaceRenderer: React.FC<SurfaceRendererProps> = ({
         <WorkflowStatusBar workflows={workflows} interactions={interactions} onSubmitInteraction={onSubmitInteraction || (() => {})} onCancelWorkflow={onCancelWorkflow || (() => {})} />
       )}
 
-      {/* Content */}
-      {useFlexGrid ? (
+      {/* Content — toggled between rendered view and inline source editor */}
+      {viewMode === 'source' ? (
+        <SurfaceSourceEditor
+          surfaceId={surfaceId}
+          data={data}
+          sources={sources}
+          onSave={onSave ?? (() => {})}
+          onRemoveComponent={onRemoveComponent}
+        />
+      ) : useFlexGrid ? (
         <div className="flex-1 flex flex-col min-h-0 w-full min-w-0">
           <FlexGridContainer layout={data.layout as FlexGridLayout} renderComponents={renderComponentsByName} className="flex-1" />
           {unplacedComponents.length > 0 && (

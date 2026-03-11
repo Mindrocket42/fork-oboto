@@ -34,6 +34,39 @@ import { emitStatus } from '../../status-reporter.mjs';
 import { isRetryableError, isCancellationError } from '../../ai-provider/utils.mjs';
 
 /**
+ * Action verbs that indicate tool-calling intent when preceded by phrases
+ * like "I'll...", "Let me...", "I will...", etc.  Using a whitelist of
+ * action verbs (rather than `\w+` with negative lookaheads) avoids
+ * false positives on conversational closings like "I'll keep that in
+ * mind", "I will be happy to help", "Let me start by thanking you".
+ */
+const ACTION_VERBS = 'write|create|generate|build|produce|compose|draft|synthesize|construct|implement|make|read|search|execute|run|install|update|modify|edit|delete|remove|fetch|download|upload|deploy|configure|set\\s+up|open|analyze|parse|compile|test|fix|refactor|restructure|reorganize|extract|prepare|proceed|continue';
+
+/**
+ * Patterns that indicate the LLM is announcing what it will do next
+ * rather than presenting a final answer.  Hoisted to module scope to
+ * avoid re-creating compiled regexes on every call to _isIncompleteResponse().
+ *
+ * Each pattern matches a specific intent-announcement frame followed by
+ * a whitelisted ACTION_VERB, so only genuine "I'm about to use a tool"
+ * announcements trigger continuations.
+ */
+const INTENT_PATTERNS = [
+  // "Let me [action verb]..."
+  new RegExp(`\\blet me\\s+(?:now\\s+)?(?:${ACTION_VERBS})\\b`, 'i'),
+  // "I'll [action verb]..." / "I will [action verb]..."
+  new RegExp(`\\bI[''\u2019]?ll\\s+(?:now\\s+)?(?:${ACTION_VERBS})\\b`, 'i'),
+  new RegExp(`\\bI\\s+will\\s+(?:now\\s+)?(?:${ACTION_VERBS})\\b`, 'i'),
+  // "Now I need/want/have to [action verb]..."
+  new RegExp(`\\bnow\\s+I\\s+(?:need|want|have)\\s+to\\s+(?:${ACTION_VERBS})\\b`, 'i'),
+  // "Next, I'll [action verb]..." / "Next step is to [action verb]..."
+  new RegExp(`\\bnext[,:]?\\s+I[''\u2019]?ll\\s+(?:${ACTION_VERBS})\\b`, 'i'),
+  new RegExp(`\\bnext\\s+step\\s+is\\s+to\\s+(?:${ACTION_VERBS})\\b`, 'i'),
+  // "Here's what I'll do..." / "Here is my plan..."
+  /\bhere[''']?s?\s+(?:what\s+I[''']?ll|my\s+plan)/i,
+];
+
+/**
  * Zod schema for the lmscript agent's structured response.
  * executeAgent() forces JSON mode, so the LLM must emit an object
  * matching this schema.  We keep it minimal — a single `response` field.
@@ -156,6 +189,10 @@ class CognitiveAgent {
     // fallback works even if the error occurs before assignment.
     let violations = [];
     let preRouted = [];
+    // Track tool calls and iteration budget at this scope so they survive
+    // lmscript throws and are accessible in the catch block for recovery.
+    const collectedToolCalls = [];
+    let lmscriptMaxIter = 10; // default; overwritten inside try
 
     try {
       this.turnCount++;
@@ -190,7 +227,7 @@ class CognitiveAgent {
       const lmscriptTools = this._getLmscriptTools();
 
       // ── Build the LScriptFunction for this turn ──────────────────
-      const model = options.model || this.config.agent?.model;
+      const model = options.model || this.config.agent?.model || this.aiProvider?.model;
       if (!model) {
         throw new Error('CognitiveAgent: no model specified — set agent.model in config or pass options.model');
       }
@@ -206,20 +243,114 @@ class CognitiveAgent {
       };
 
       // ── Execute via lmscript agent loop ──────────────────────────
+      // Use the dedicated lmscript iteration limit (default 10) rather than
+      // maxToolRounds (15).  lmscript throws a hard JSON-parse error when
+      // iterations exhaust, so a moderate value keeps the loop convergent.
+      // The continuation loop below handles additional work if needed.
+      lmscriptMaxIter = options.maxIterations
+        || this.config.agent?.maxLmscriptIterations
+        || this.config.agent?.maxToolRounds
+        || 10;
+
       emitStatus('Thinking…');
       this._tracker.setActivity('Thinking…');
+
       const result = await this._runtime.executeAgent(agentFn, input, {
-        maxIterations: options.maxIterations || this.config.agent?.maxToolRounds || 10,
+        maxIterations: lmscriptMaxIter,
+        signal: options.signal,
         onToolCall: (toolCall) => {
           emitStatus(`Executing tool: ${toolCall.name}`);
           this._tracker.setActivity(`Executing: ${toolCall.name}`);
+          // Mirror tool calls at the CognitiveAgent level so we can
+          // synthesize a response if lmscript exhausts its iteration budget.
+          collectedToolCalls.push(toolCall);
         },
         onIteration: (iteration) => {
           this._tracker.setActivity(`Thinking… (iteration ${iteration})`);
         },
       });
 
-      const responseText = result.data?.response || '';
+      let responseText = result.data?.response || '';
+
+      // ── Continuation: detect intent-announcement responses ────────
+      // If the lmscript agent loop completed but the response looks like
+      // "Let me write the file..." without actually producing content,
+      // re-run the agent with a nudge to take action.
+      let continuations = 0;
+      const maxContinuations = this.config.agent.maxContinuations || 3;
+      const maxTotalLLMCalls = this.config.agent.maxTotalLLMCalls || 20;
+      // Track aggregate LLM calls across the initial run + all continuations.
+      // executeAgent() returns usage.callCount when the runtime tracks it;
+      // use lmscriptMaxIter as a conservative upper-bound when unavailable
+      // (the runtime may have used up to that many LLM calls internally).
+      let totalLLMCalls = result.usage?.callCount || lmscriptMaxIter;
+
+      while (
+        continuations < maxContinuations &&
+        totalLLMCalls < maxTotalLLMCalls &&
+        !options.signal?.aborted &&
+        responseText.trim() &&
+        this._isIncompleteResponse(responseText)
+      ) {
+        continuations++;
+        this._tracker.setActivity(`Continuing work… (continuation ${continuations})`);
+        emitStatus(`Response appears incomplete — continuing (${continuations}/${maxContinuations})`);
+
+        // Build a summary of tools already executed so the continuation
+        // retains context about prior work and avoids re-reading files.
+        const priorToolSummary = result.toolCalls?.length
+          ? `\nTools already executed in this turn:\n${result.toolCalls.map(tc => {
+              const res = typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result);
+              return `- ${tc.name}: ${res.substring(0, 200)}`;
+            }).join('\n')}\n\n`
+          : '';
+
+        // Give continuations a REDUCED iteration budget — they should only
+        // need a few rounds to act on the announced intent, not a full budget.
+        const continuationMaxIter = Math.min(
+          lmscriptMaxIter,
+          5  // hard cap: continuations get at most 5 iterations
+        );
+        const remainingBudget = maxTotalLLMCalls - totalLLMCalls;
+        const effectiveMaxIter = Math.min(continuationMaxIter, remainingBudget);
+
+        if (effectiveMaxIter <= 0) break;
+
+        const continuationResult = await this._runtime.executeAgent(agentFn,
+          `You just said: "${responseText.trim().substring(0, 500)}"\n\n` +
+          priorToolSummary +
+          `You described what you intend to do but did NOT actually do it. ` +
+          `You MUST now take action by calling the appropriate tools (e.g. write_file, run_command, etc.) ` +
+          `to complete the task. Do NOT just describe what you will do — actually do it now using tool calls.`,
+          {
+            maxIterations: effectiveMaxIter,
+            signal: options.signal,
+            onToolCall: (toolCall) => {
+              emitStatus(`Executing tool: ${toolCall.name}`);
+              this._tracker.setActivity(`Executing: ${toolCall.name}`);
+            },
+            onIteration: (iteration) => {
+              this._tracker.setActivity(`Thinking… (continuation ${continuations}, iteration ${iteration})`);
+            },
+          }
+        );
+
+        responseText = continuationResult.data?.response || '';
+
+        // Accumulate call count for the ceiling guard.
+        // Use effectiveMaxIter as fallback when the runtime doesn't report callCount
+        // to avoid undercounting (which would defeat the budget ceiling).
+        totalLLMCalls += continuationResult.usage?.callCount || effectiveMaxIter;
+
+        if (continuationResult.usage) {
+          if (!result.usage) result.usage = { totalTokens: 0 };
+          result.usage.totalTokens = (result.usage.totalTokens || 0) + (continuationResult.usage.totalTokens || 0);
+        }
+        // Merge tool calls
+        if (continuationResult.toolCalls?.length) {
+          result.toolCalls = [...(result.toolCalls || []), ...continuationResult.toolCalls];
+        }
+      }
 
       // ── Step 9: Validate through ObjectivityGate ─────────────────
       emitStatus('Validating response quality');
@@ -267,6 +398,87 @@ class CognitiveAgent {
         tokenUsage: result.usage || null
       };
     } catch (err) {
+      // ── Iteration-exhaustion recovery ──────────────────────────────
+      // lmscript throws a JSON-parse error when maxIterations is reached
+      // and the LLM's last response was a tool-call (not a final JSON answer).
+      // If we collected tool calls during execution, synthesize a response
+      // from them rather than discarding all that work via a full legacy fallback.
+      const isIterationExhaustion = err.message?.includes('[lmscript]')
+        && (err.message.includes('Failed to parse LLM response as JSON')
+            || err.message.includes('produced invalid output'));
+
+      if (isIterationExhaustion && collectedToolCalls.length > 0) {
+        console.warn(
+          `[CognitiveAgent] lmscript exhausted ${lmscriptMaxIter} iterations with ${collectedToolCalls.length} tool calls — synthesizing response`
+        );
+        this._tracker.setActivity('Synthesizing from tool results…');
+        emitStatus('Synthesizing from tool results…');
+
+        // Build tool results in the format _buildFallbackResponse expects
+        const toolResults = collectedToolCalls.map(tc => ({
+          tool: tc.name,
+          result: tc.result
+        }));
+
+        // Try one LLM call via the legacy path to synthesize a summary
+        let synthesized = '';
+        try {
+          const basePrompt = (this.aiProvider?.systemPrompt) || this.systemPrompt;
+          const toolSummary = toolResults.map(t => {
+            const resultStr = typeof t.result === 'string'
+              ? t.result
+              : JSON.stringify(t.result);
+            return `- ${t.tool}: ${resultStr.substring(0, 500)}`;
+          }).join('\n');
+
+          const synthResult = await this._callLLM([
+            { role: 'system', content: basePrompt },
+            { role: 'user', content: input },
+            {
+              role: 'system',
+              content: `The tool loop completed (${collectedToolCalls.length} tool calls executed). Here is a summary of all tool results:\n\n${toolSummary}\n\nNow write a clear, plain-English response for the user. Do NOT call any more tools.`
+            }
+          ], [], options);
+          synthesized = synthResult.content || '';
+        } catch (synthErr) {
+          console.warn('[CognitiveAgent] Synthesis LLM call failed:', synthErr.message);
+        }
+
+        // If LLM synthesis failed, use the structured fallback
+        if (!synthesized.trim()) {
+          synthesized = this._buildFallbackResponse(toolResults);
+        }
+
+        // Complete the cognitive loop (validate, remember, evolve)
+        const validation = this.cognitive.validateOutput(synthesized, { input });
+        let finalResponse = synthesized;
+        if (!validation.passed) {
+          finalResponse += '\n\n[Note: This response scored below the objectivity threshold. R=' +
+            validation.R.toFixed(2) + ']';
+        }
+
+        this.history.push({ role: 'user', content: input });
+        this.history.push({ role: 'assistant', content: finalResponse });
+        while (this.history.length > this.maxHistory) {
+          this.history.shift();
+        }
+        this.cognitive.remember(input, finalResponse);
+        for (let i = 0; i < 3; i++) this.cognitive.tick();
+
+        emitStatus('Response ready');
+        this._tracker.stop();
+
+        return {
+          response: finalResponse,
+          toolResults,
+          thoughts: null,
+          signature: null,
+          diagnostics: { ...this.cognitive.getDiagnostics(), synthesizedFromExhaustion: true },
+          tokenUsage: null
+        };
+      }
+
+      // ── General lmscript error → full legacy fallback ──────────────
       console.error('[CognitiveAgent] lmscript runtime error, falling back to legacy:', err.message);
       this._tracker.stop();
 
@@ -412,66 +624,49 @@ class CognitiveAgent {
       // Initial LLM call via ai-man's EventicAIProvider
       this._tracker.setActivity('Thinking…');
       response = await this._callLLM(messages, toolDefs, options);
+      let llmCallCount = 1; // count the initial call
+      const maxTotalLLMCalls = this.config.agent.maxTotalLLMCalls || 20;
 
-      // Tool call loop
+      // Tool call loop — delegate to shared helper to avoid duplication
+      ({ response, toolRounds, llmCallCount } = await this._processToolCalls(
+        messages, response, toolDefs, toolResults, toolRounds, options, llmCallCount
+      ));
+
+      // ── Continuation loop: detect incomplete responses ──────────────
+      // If the LLM says "let me do X" or "now I'll write..." without making
+      // tool calls, it announced intent but didn't act. Re-prompt it to continue.
+      let continuations = 0;
+      const maxContinuations = this.config.agent.maxContinuations || 3;
+
       while (
-        response.toolCalls &&
-        response.toolCalls.length > 0 &&
-        toolRounds < this.config.agent.maxToolRounds
+        continuations < maxContinuations &&
+        toolRounds < this.config.agent.maxToolRounds &&
+        llmCallCount < maxTotalLLMCalls &&
+        !options.signal?.aborted &&
+        !response.toolCalls?.length &&
+        response.content?.trim() &&
+        this._isIncompleteResponse(response.content)
       ) {
-        toolRounds++;
+        continuations++;
+        this._tracker.setActivity(`Continuing work… (continuation ${continuations})`);
+        emitStatus(`Response appears incomplete — continuing (${continuations}/${maxContinuations})`);
 
-        // Build the assistant message for ALL tool calls in this round.
-        // For Gemini thinking models, we MUST preserve _geminiParts (which
-        // contain thought/thoughtSignature fields) or the API will reject
-        // subsequent turns with "missing thought_signature" errors.
-        const rawMsg = response.rawMessage;
-        const assistantMsg = {
-          role: 'assistant',
-          content: null,
-          tool_calls: response.toolCalls.map(tc => ({
-            id: tc.id || `call_${toolRounds}_${tc.function.name}`,
-            type: 'function',
-            function: {
-              name: tc.function.name,
-              arguments: typeof tc.function.arguments === 'string'
-                ? tc.function.arguments
-                : JSON.stringify(tc.function.arguments)
-            },
-            // Preserve thoughtSignature for Gemini round-tripping
-            _thoughtSignature: tc._thoughtSignature || undefined
-          }))
-        };
+        // Add the incomplete response as an assistant message
+        messages.push({ role: 'assistant', content: response.content });
 
-        // Preserve full Gemini parts for faithful round-trip reconstruction
-        if (rawMsg && rawMsg._geminiParts) {
-          assistantMsg._geminiParts = rawMsg._geminiParts;
-        }
+        // Prompt the LLM to continue executing rather than just describing
+        messages.push({
+          role: 'system',
+          content: 'You just described what you intend to do but did NOT actually do it. You MUST now take action by calling the appropriate tools (e.g. write_file, execute_command, etc.) to complete the task. Do NOT just describe what you will do — actually do it now using tool calls.'
+        });
 
-        messages.push(assistantMsg);
-
-        // Execute each tool and push results
-        const roundToolNames = response.toolCalls.map(tc => tc.function.name);
-        emitStatus(`Executing tools: ${roundToolNames.join(', ')}`);
-
-        for (const toolCall of response.toolCalls) {
-          const result = await this._executeTool(
-            toolCall.function.name,
-            toolCall.function.arguments
-          );
-          toolResults.push({ tool: toolCall.function.name, result });
-
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id || `call_${toolRounds}_${toolCall.function.name}`,
-            name: toolCall.function.name,
-            content: JSON.stringify(result)
-          });
-        }
-
-        // Call LLM again with tool results
-        this._tracker.setActivity(`Thinking… (round ${toolRounds + 1})`);
         response = await this._callLLM(messages, toolDefs, options);
+        llmCallCount++;
+
+        // If the continuation produced tool calls, run them through the shared tool loop
+        ({ response, toolRounds, llmCallCount } = await this._processToolCalls(
+          messages, response, toolDefs, toolResults, toolRounds, options, llmCallCount
+        ));
       }
 
       // If the tool loop finished but the final response is still empty
@@ -675,6 +870,90 @@ class CognitiveAgent {
   }
 
   /**
+   * Execute pending tool calls in a loop, appending assistant/tool messages
+   * to the conversation and calling the LLM after each round.
+   *
+   * Shared by both the main tool loop and the continuation-triggered tool
+   * loop so the Gemini _geminiParts round-trip logic lives in one place.
+   *
+   * @param {Array} messages     - Mutable messages array (modified in place)
+   * @param {Object} response    - Current LLM response (may contain toolCalls)
+   * @param {Array} toolDefs     - Tool definitions for subsequent LLM calls
+   * @param {Array} toolResults  - Accumulator for tool results (modified in place)
+   * @param {number} toolRounds  - Current tool round count
+   * @param {Object} options     - LLM call options (signal, etc.)
+   * @param {number} [llmCallCount=0] - Running total of LLM calls in this turn (for maxTotalLLMCalls)
+   * @returns {Promise<{response: Object, toolRounds: number, llmCallCount: number}>}
+   * @private
+   */
+  async _processToolCalls(messages, response, toolDefs, toolResults, toolRounds, options, llmCallCount = 0) {
+    const maxTotalLLMCalls = this.config.agent.maxTotalLLMCalls || 20;
+    while (
+      response.toolCalls &&
+      response.toolCalls.length > 0 &&
+      toolRounds < this.config.agent.maxToolRounds &&
+      llmCallCount < maxTotalLLMCalls
+    ) {
+      toolRounds++;
+
+      // Build the assistant message for ALL tool calls in this round.
+      // For Gemini thinking models, we MUST preserve _geminiParts (which
+      // contain thought/thoughtSignature fields) or the API will reject
+      // subsequent turns with "missing thought_signature" errors.
+      const rawMsg = response.rawMessage;
+      const assistantMsg = {
+        role: 'assistant',
+        content: null,
+        tool_calls: response.toolCalls.map(tc => ({
+          id: tc.id || `call_${toolRounds}_${tc.function.name}`,
+          type: 'function',
+          function: {
+            name: tc.function.name,
+            arguments: typeof tc.function.arguments === 'string'
+              ? tc.function.arguments
+              : JSON.stringify(tc.function.arguments)
+          },
+          // Preserve thoughtSignature for Gemini round-tripping
+          _thoughtSignature: tc._thoughtSignature || undefined
+        }))
+      };
+
+      // Preserve full Gemini parts for faithful round-trip reconstruction
+      if (rawMsg && rawMsg._geminiParts) {
+        assistantMsg._geminiParts = rawMsg._geminiParts;
+      }
+
+      messages.push(assistantMsg);
+
+      // Execute each tool and push results
+      const roundToolNames = response.toolCalls.map(tc => tc.function.name);
+      emitStatus(`Executing tools: ${roundToolNames.join(', ')}`);
+
+      for (const toolCall of response.toolCalls) {
+        const result = await this._executeTool(
+          toolCall.function.name,
+          toolCall.function.arguments
+        );
+        toolResults.push({ tool: toolCall.function.name, result });
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id || `call_${toolRounds}_${toolCall.function.name}`,
+          name: toolCall.function.name,
+          content: JSON.stringify(result)
+        });
+      }
+
+      // Call LLM again with tool results
+      this._tracker.setActivity(`Thinking… (round ${toolRounds + 1})`);
+      response = await this._callLLM(messages, toolDefs, options);
+      llmCallCount++;
+    }
+
+    return { response, toolRounds, llmCallCount };
+  }
+
+  /**
    * Build a human-readable fallback response from tool results.
    * Used as a last resort when LLM synthesis repeatedly returns empty.
    * Formats results as plain English instead of raw JSON.
@@ -696,6 +975,44 @@ class CognitiveAgent {
     }
 
     return parts.join('\n');
+  }
+
+  /**
+   * Detect whether an LLM response is an "intent announcement" rather than
+   * a completed response.  The LLM sometimes says "Let me write the file"
+   * or "Now I'll create the synthesis paper" and stops — announcing what it
+   * will do without actually doing it (no tool calls, no content produced).
+   *
+   * This method returns true when the response looks like it's announcing
+   * future work rather than presenting a final answer.
+   *
+   * @param {string} content - The LLM response text
+   * @returns {boolean} true if the response appears incomplete
+   * @private
+   */
+  _isIncompleteResponse(content) {
+    if (!content || typeof content !== 'string') return false;
+
+    const trimmed = content.trim();
+
+    // Only very short responses should be flagged as incomplete.
+    // Anything over 500 chars is almost certainly a substantive answer,
+    // even if it happens to end with an intent phrase like "let me..."
+    if (trimmed.length > 500) return false;
+
+    // Check only the very last line for intent patterns.
+    // Checking multiple tail lines caused false positives on normal
+    // multi-paragraph responses that mentioned future actions.
+    const lines = trimmed.split('\n').filter(l => l.trim());
+    const tailText = lines.slice(-1).join(' ');
+
+    for (const pattern of INTENT_PATTERNS) {
+      if (pattern.test(tailText)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**

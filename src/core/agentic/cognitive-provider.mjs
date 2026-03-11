@@ -188,6 +188,10 @@ export class CognitiveProvider extends AgenticProvider {
                 // Simple / planner-disabled path — direct turn
                 const result = await this._agent.turn(input, { signal: options.signal });
                 responseText = result.response;
+                // Capture token usage from cognitive agent for the response message
+                if (result.tokenUsage) {
+                    this._lastTokenUsage = result.tokenUsage;
+                }
 
                 if (this._deps.eventBus) {
                     this._deps.eventBus.emitTyped('agentic:cognitive-metadata', result.diagnostics);
@@ -207,7 +211,7 @@ export class CognitiveProvider extends AgenticProvider {
                 hmAfter.addMessage('assistant', responseText);
             }
 
-            return { response: responseText, streamed };
+            return { response: responseText, streamed, tokenUsage: this._lastTokenUsage || null };
         } finally {
             // Ensure the tracker is stopped even if an error occurs
             if (this._agent?.stopTracking) {

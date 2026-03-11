@@ -168,6 +168,13 @@ export interface Message {
       status?: 'running' | 'completed';
   }>;
 
+  // Token usage for this response (from the LLM provider)
+  tokenUsage?: {
+    totalTokens?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+  } | null;
+
   // Marks a response message still being built (live streaming)
   _pending?: boolean;
 }

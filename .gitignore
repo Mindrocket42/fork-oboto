@@ -75,3 +75,6 @@ regional-news.json
 
 # Browser profile data
 puppeteer_data/
+
+# Windows build artifacts
+win-build/
