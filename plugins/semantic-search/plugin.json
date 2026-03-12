@@ -2,5 +2,6 @@
   "name": "semantic-search",
   "version": "1.0.0",
   "description": "Store and search information using semantic queries",
-  "main": "index.mjs"
+  "main": "index.mjs",
+  "trait": "Use semantic_store to save text with embeddings for later retrieval, and semantic_search to find stored information using natural language queries ranked by relevance. Best for building a searchable knowledge base from conversations or documents."
 }

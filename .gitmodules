@@ -1,0 +1,3 @@
+[submodule "skills/alephnet-node"]
+	path = skills/alephnet-node
+	url = https://github.com/sschepis/alephnet-node.git

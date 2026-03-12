@@ -2,5 +2,6 @@
   "name": "voice-suite",
   "version": "1.0.0",
   "description": "Voice manipulation suite.",
-  "main": "index.mjs"
+  "main": "index.mjs",
+  "trait": "Use text_to_speech to synthesize speech, transcribe_audio to convert audio to text, get_voices to list available voices, clone_voice to create a custom voice clone, and generate_sound_effect to produce sound effects from descriptions. Comprehensive audio toolkit for voice interactions."
 }

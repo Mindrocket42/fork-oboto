@@ -113,6 +113,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@nut-tree-fork/nut-js": "^4.2.6",
     "@sschepis/resolang": "^0.5.0",
+    "@sschepis/lmscript": "^0.1.1",
     "body-parser": "^2.2.2",
     "boxen": "^8.0.1",
     "chalk": "^5.5.0",
@@ -136,7 +137,6 @@
     "zod": "=3.25.76"
   },
   "optionalDependencies": {
-    "@sschepis/lmscript": "*",
     "@bubblelab/bubble-core": "*",
     "@bubblelab/bubble-runtime": "*",
     "@bubblelab/shared-schemas": "*",

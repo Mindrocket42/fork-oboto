@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Chrome extension bridge — control real Chrome browser tabs, windows, and DOM via WebSocket",
   "main": "index.mjs",
-  "capabilities": { "tools": true, "ws": true }
+  "capabilities": { "tools": true, "ws": true },
+  "trait": "Use chrome_list_tabs, chrome_activate_tab, chrome_open_tab, chrome_close_tab, chrome_read_page, chrome_click, chrome_type, and chrome_screenshot to control real Chrome browser tabs via the installed extension. Best for interacting with the user's actual browser session rather than a headless one."
 }

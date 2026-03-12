@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Ingest and analyze documents (PDF, DOCX, XLSX, Images, Text).",
   "main": "index.mjs",
-  "capabilities": { "tools": true }
+  "capabilities": { "tools": true },
+  "trait": "Use ingest_document to extract text from PDF, DOCX, XLSX, image, or text files by path. Use list_documents and get_document_content to retrieve previously ingested documents, and summarize_document to generate AI summaries of arbitrary text."
 }

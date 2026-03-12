@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Inspect agent reasoning traces and tool execution steps.",
   "main": "index.mjs",
-  "capabilities": { "tools": true, "events": true }
+  "capabilities": { "tools": true, "events": true },
+  "trait": "Use inspect_thought_stream to view the agent's internal reasoning trace and tool execution history for the current or recent conversations. Useful for debugging why the agent made specific decisions or to understand its planning process."
 }

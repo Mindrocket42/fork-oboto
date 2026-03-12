@@ -3,5 +3,6 @@
   "name": "System Logger",
   "version": "1.0.0",
   "description": "Displays system logs and provides tools to read the central log directory.",
-  "author": "Oboto Team"
+  "author": "Oboto Team",
+  "trait": "Use read_logs to retrieve recent system log entries and list_log_files to see available log files. Useful for diagnosing issues, reviewing system activity, or checking past errors."
 }

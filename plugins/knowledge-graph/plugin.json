@@ -2,5 +2,6 @@
   "name": "knowledge-graph",
   "version": "1.0.0",
   "description": "Explorer for the Global Memory Field and semantic data",
-  "main": "index.mjs"
+  "main": "index.mjs",
+  "trait": "Use kg_add_triple to store subject-predicate-object facts, kg_query to search triples by pattern, kg_list_entities to browse stored entities, and kg_remove_triple to delete facts. Provides persistent structured memory across conversations."
 }

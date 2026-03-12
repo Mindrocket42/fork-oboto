@@ -179,16 +179,17 @@ export class AiManLLMProvider {
         };
 
         // ── Tool calls ──
+        // lmscript's LLMResponse interface requires `arguments` to be a JSON
+        // string.  The runtime calls JSON.parse(tc.arguments) internally, so
+        // passing a pre-parsed object causes `"[object Object]" is not valid
+        // JSON` errors that cascade into iteration-exhaustion failures.
         if (message.tool_calls?.length) {
             response.toolCalls = message.tool_calls.map((tc) => ({
                 id: tc.id,
                 name: tc.function.name,
                 arguments: typeof tc.function.arguments === 'string'
-                    ? (() => {
-                        try { return JSON.parse(tc.function.arguments); }
-                        catch { return { _raw: tc.function.arguments }; }
-                    })()
-                    : tc.function.arguments,
+                    ? tc.function.arguments
+                    : JSON.stringify(tc.function.arguments),
             }));
         }
 

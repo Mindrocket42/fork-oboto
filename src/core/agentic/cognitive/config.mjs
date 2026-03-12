@@ -50,6 +50,18 @@ export const DEFAULT_COGNITIVE_CONFIG = {
     // so this ceiling must be >= 31 to avoid prematurely halting tool loops.
     // Set to 35 for a small safety margin.
     maxTotalLLMCalls: 35,
+    // Whether to use an LLM routing call to select relevant plugin traits
+    // before building the system prompt.  When false, all active plugin
+    // traits are included unconditionally (cheaper but noisier context).
+    traitRoutingEnabled: true,
+    // Minimum number of active plugins with traits before the routing LLM
+    // call kicks in.  Below this threshold all traits are included directly
+    // (not worth a round-trip for a handful of plugins).
+    minPluginsForTraitRouting: 5,
+    // Plugin names that are always included in the system prompt regardless
+    // of the LLM routing decision.  Prevents adversarial user input from
+    // stripping critical plugins (e.g. security, backup, notifications).
+    alwaysIncludePlugins: [],
     maxHistory: 50,
     systemPrompt: `You are an AI agent with cognitive awareness and tool-calling capabilities. You have access to tools for reading/writing files, listing directories, running commands, checking your cognitive state, and recalling memories.
 

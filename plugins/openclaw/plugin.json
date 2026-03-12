@@ -19,5 +19,6 @@
       "description": "WebSocket URL for the OpenClaw gateway",
       "default": "ws://127.0.0.1:18789"
     }
-  }
+  },
+  "trait": "Use openclaw_delegate to hand off complex tasks to the OpenClaw agent for autonomous execution, openclaw_status to check task progress, and openclaw_list_sessions to see active sessions. Best for long-running coding tasks, file operations, or multi-step automations that benefit from a dedicated agent."
 }

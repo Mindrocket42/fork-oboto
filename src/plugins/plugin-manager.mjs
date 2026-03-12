@@ -459,6 +459,24 @@ export class PluginManager {
         return [];
     }
 
+    /**
+     * Collect trait descriptions from all active plugins.
+     * Each trait is an optional 1–2 sentence description from the plugin's
+     * manifest explaining what tools the plugin provides and when to use them.
+     * @returns {Array<{name: string, trait: string}>}
+     */
+    getPluginTraits() {
+        const traits = [];
+        for (const instance of this.plugins.values()) {
+            if (instance.status !== 'active') continue;
+            const trait = instance.discovered.manifest.trait;
+            if (trait && typeof trait === 'string') {
+                traits.push({ name: instance.name, trait });
+            }
+        }
+        return traits;
+    }
+
     // ── Middleware ────────────────────────────────────────────────────────
 
     /**

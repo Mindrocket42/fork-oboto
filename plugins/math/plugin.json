@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Mathematical evaluation, unit conversion, and equation solving",
   "main": "index.mjs",
-  "capabilities": { "tools": true }
+  "capabilities": { "tools": true },
+  "trait": "Use compute for basic math expressions and unit conversions, advanced_compute for symbolic algebra and equation solving, matrix_compute for matrix operations, and compute_cache_stats to check cache usage. Always prefer these tools over mental arithmetic for accuracy."
 }

@@ -8,5 +8,6 @@
     "schema": {
       "openaiApiKey": { "type": "string", "label": "OpenAI API Key", "secret": true }
     }
-  }
+  },
+  "trait": "Use generate_image to create images from text prompts via DALL-E, create_image_variation to produce variations of an existing image, manipulate_image to resize/crop/rotate/convert images using sharp, and get_image_info to inspect dimensions and metadata."
 }

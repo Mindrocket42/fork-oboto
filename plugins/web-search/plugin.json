@@ -8,5 +8,6 @@
     "schema": {
       "serperApiKey": { "type": "string", "label": "Serper API Key", "secret": true }
     }
-  }
+  },
+  "trait": "Use search_web to perform Google searches via the Serper API and get ranked results with snippets. Use fetch_url to retrieve the full text content of any URL. Best for answering questions that require current information or researching topics online."
 }

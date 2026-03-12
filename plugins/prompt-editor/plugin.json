@@ -2,5 +2,6 @@
   "name": "prompt-editor",
   "version": "1.0.0",
   "description": "Manage and test prompt chains",
-  "main": "index.mjs"
+  "main": "index.mjs",
+  "trait": "Use create_prompt to save reusable prompt templates, list_prompts to browse them, run_prompt to execute a prompt chain, and delete_prompt to remove one. Best for building, testing, and iterating on multi-step prompt workflows."
 }

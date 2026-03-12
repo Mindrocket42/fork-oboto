@@ -223,6 +223,13 @@ export class EventBroadcaster {
         this._on('server:conversation-list', (data) => broadcast('conversation-list', data));
 
         // Embed Events — inline embedded objects (YouTube, Spotify, etc.)
+        // The embed plugin emits via api.events.emit('embed:created', ...),
+        // which the PluginAPI prefixes to "plugin:embed:embed:created".
+        this._on('plugin:embed:embed:created', (data) => {
+            broadcast('message', data);
+        });
+        // Also listen for the unprefixed event for backward compatibility
+        // with any core code that emits 'embed:created' directly.
         this._on('embed:created', (data) => {
             broadcast('message', data);
         });

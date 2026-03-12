@@ -6,6 +6,13 @@ import { callOpenAIREST, callOpenAIRESTStream, transformRequestBody } from './ad
 import { callAnthropicREST, callAnthropicRESTStream } from './adapters/anthropic.mjs';
 import { callWebLLM, setEventBusRef as setWebLLMEventBusRef } from './adapters/webllm.mjs';
 import { callCloudProxy, callCloudProxyStream, setCloudSyncRef, setEventBusRefForCloud } from './adapters/cloud.mjs';
+import { callAnthropicDirectREST, callAnthropicDirectRESTStream } from './adapters/anthropic-direct.mjs';
+import { callCohereREST, callCohereRESTStream } from './adapters/cohere.mjs';
+import { callAzureOpenAIREST, callAzureOpenAIRESTStream } from './adapters/azure-openai.mjs';
+import { callBedrockREST, callBedrockRESTStream } from './adapters/bedrock.mjs';
+import { callReplicateREST, callReplicateRESTStream } from './adapters/replicate.mjs';
+import { callHuggingFaceREST, callHuggingFaceRESTStream } from './adapters/huggingface.mjs';
+import { callAI21REST, callAI21RESTStream } from './adapters/ai21.mjs';
 
 // Re-export constants and utilities
 export {
@@ -62,7 +69,46 @@ export async function callProvider(requestBody, options = {}) {
         return await callAnthropicREST(ctx, requestBody, options.signal);
     }
 
-    // ── OpenAI / Local: use REST fetch ──
+    // ── Anthropic Direct: use direct Anthropic API adapter ──
+    if (ctx.provider === AI_PROVIDERS.ANTHROPIC_DIRECT) {
+        return await callAnthropicDirectREST(ctx, requestBody, options.signal);
+    }
+
+    // ── Cohere: use native Cohere REST adapter ──
+    if (ctx.provider === AI_PROVIDERS.COHERE) {
+        return await callCohereREST(ctx, requestBody, options.signal);
+    }
+
+    // ── Azure OpenAI: use Azure-specific REST adapter ──
+    if (ctx.provider === AI_PROVIDERS.AZURE_OPENAI) {
+        return await callAzureOpenAIREST(ctx, requestBody, options.signal);
+    }
+
+    // ── AWS Bedrock: use Bedrock REST adapter ──
+    if (ctx.provider === AI_PROVIDERS.BEDROCK) {
+        return await callBedrockREST(ctx, requestBody, options.signal);
+    }
+
+    // ── Replicate: use Replicate REST adapter ──
+    if (ctx.provider === AI_PROVIDERS.REPLICATE) {
+        return await callReplicateREST(ctx, requestBody, options.signal);
+    }
+
+    // ── Hugging Face: use HF Inference REST adapter ──
+    if (ctx.provider === AI_PROVIDERS.HUGGINGFACE) {
+        return await callHuggingFaceREST(ctx, requestBody, options.signal);
+    }
+
+    // ── AI21: use AI21 REST adapter ──
+    if (ctx.provider === AI_PROVIDERS.AI21) {
+        return await callAI21REST(ctx, requestBody, options.signal);
+    }
+
+    // ── OpenAI / Local / OpenAI-compatible fallthrough ──
+    // Handles: OpenAI, Mistral, xAI, DeepSeek, Groq, Together, Fireworks,
+    // Cerebras, SambaNova, OpenRouter, Perplexity, LMStudio, and any other
+    // provider using the OpenAI-compatible chat completions format.
+    // detection.mjs sets the correct endpoint and auth headers for each.
     return await callOpenAIREST(ctx, requestBody, options.signal);
 }
 
@@ -94,7 +140,46 @@ export async function callProviderStream(requestBody, options = {}) {
         return await callAnthropicRESTStream(ctx, requestBody, options.signal);
     }
 
-    // ── OpenAI / Local: use REST SSE ──
+    // ── Anthropic Direct: use direct Anthropic API SSE adapter ──
+    if (ctx.provider === AI_PROVIDERS.ANTHROPIC_DIRECT) {
+        return await callAnthropicDirectRESTStream(ctx, requestBody, options.signal);
+    }
+
+    // ── Cohere: use native Cohere REST SSE adapter ──
+    if (ctx.provider === AI_PROVIDERS.COHERE) {
+        return await callCohereRESTStream(ctx, requestBody, options.signal);
+    }
+
+    // ── Azure OpenAI: use Azure-specific REST SSE adapter ──
+    if (ctx.provider === AI_PROVIDERS.AZURE_OPENAI) {
+        return await callAzureOpenAIRESTStream(ctx, requestBody, options.signal);
+    }
+
+    // ── AWS Bedrock: use Bedrock REST SSE adapter ──
+    if (ctx.provider === AI_PROVIDERS.BEDROCK) {
+        return await callBedrockRESTStream(ctx, requestBody, options.signal);
+    }
+
+    // ── Replicate: use Replicate REST SSE adapter ──
+    if (ctx.provider === AI_PROVIDERS.REPLICATE) {
+        return await callReplicateRESTStream(ctx, requestBody, options.signal);
+    }
+
+    // ── Hugging Face: use HF Inference REST SSE adapter ──
+    if (ctx.provider === AI_PROVIDERS.HUGGINGFACE) {
+        return await callHuggingFaceRESTStream(ctx, requestBody, options.signal);
+    }
+
+    // ── AI21: use AI21 REST SSE adapter ──
+    if (ctx.provider === AI_PROVIDERS.AI21) {
+        return await callAI21RESTStream(ctx, requestBody, options.signal);
+    }
+
+    // ── OpenAI / Local / OpenAI-compatible fallthrough ──
+    // Handles: OpenAI, Mistral, xAI, DeepSeek, Groq, Together, Fireworks,
+    // Cerebras, SambaNova, OpenRouter, Perplexity, LMStudio, and any other
+    // provider using the OpenAI-compatible chat completions format.
+    // detection.mjs sets the correct endpoint and auth headers for each.
     return await callOpenAIRESTStream(ctx, requestBody, options.signal);
 }
 

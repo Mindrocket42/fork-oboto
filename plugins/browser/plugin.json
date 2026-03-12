@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Browser automation with Puppeteer",
   "main": "index.mjs",
-  "capabilities": { "tools": true }
+  "capabilities": { "tools": true },
+  "trait": "Use browse_open to navigate to URLs in a headless browser, browse_act to interact with page elements (click, type, scroll, select), browse_screenshot to capture the current page as an image, and browse_close to end the session. Best for reading web pages, filling forms, or verifying live sites."
 }

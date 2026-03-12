@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Animated mathematical explanations using a Manim-inspired DSL rendered inline in chat",
   "main": "index.mjs",
-  "capabilities": { "tools": true }
+  "capabilities": { "tools": true },
+  "trait": "Use create_math_animation to generate animated mathematical explanations (graphs, transforms, step-by-step proofs) rendered inline in chat using a Manim-inspired DSL. Best for visually explaining calculus, geometry, or algebraic concepts."
 }

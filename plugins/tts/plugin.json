@@ -8,5 +8,6 @@
     "schema": {
       "elevenlabsApiKey": { "type": "string", "label": "ElevenLabs API Key", "secret": true }
     }
-  }
+  },
+  "trait": "Use text_to_speech to convert text into spoken audio via ElevenLabs, and list_voices to see available voice options. Best when the user asks to hear something read aloud or wants audio output."
 }

@@ -113,6 +113,32 @@ export const config = {
     get openai() { return process.env.OPENAI_API_KEY; },
     get anthropic() { return process.env.ANTHROPIC_API_KEY; },
     get google() { return process.env.GOOGLE_API_KEY; },
+
+    // Tier 1 — Major commercial APIs
+    get mistral() { return process.env.MISTRAL_API_KEY; },
+    get cohere() { return process.env.COHERE_API_KEY; },
+    get azureOpenai() { return process.env.AZURE_OPENAI_API_KEY; },
+    get azureOpenaiEndpoint() { return process.env.AZURE_OPENAI_ENDPOINT; },
+    get azureOpenaiDeployment() { return process.env.AZURE_OPENAI_DEPLOYMENT; },
+    get awsAccessKeyId() { return process.env.AWS_ACCESS_KEY_ID; },
+    get awsSecretAccessKey() { return process.env.AWS_SECRET_ACCESS_KEY; },
+    get awsRegion() { return process.env.AWS_REGION; },
+    get xai() { return process.env.XAI_API_KEY; },
+    get deepseek() { return process.env.DEEPSEEK_API_KEY; },
+
+    // Tier 2 — Fast inference platforms
+    get groq() { return process.env.GROQ_API_KEY; },
+    get together() { return process.env.TOGETHER_API_KEY; },
+    get fireworks() { return process.env.FIREWORKS_API_KEY; },
+    get cerebras() { return process.env.CEREBRAS_API_KEY; },
+    get sambanova() { return process.env.SAMBANOVA_API_KEY; },
+    get replicate() { return process.env.REPLICATE_API_TOKEN; },
+
+    // Tier 3 — Specialized / aggregator
+    get openrouter() { return process.env.OPENROUTER_API_KEY; },
+    get perplexity() { return process.env.PERPLEXITY_API_KEY; },
+    get huggingface() { return process.env.HUGGINGFACE_API_TOKEN; },
+    get ai21() { return process.env.AI21_API_KEY; },
   }
 };
 

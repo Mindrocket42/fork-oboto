@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Rich media embedding — YouTube, Spotify, maps, and more inline in chat",
   "main": "index.mjs",
-  "capabilities": { "tools": true }
+  "capabilities": { "tools": true },
+  "trait": "Use embed_media to embed YouTube videos, Spotify tracks, Google Maps, or other rich media inline in the chat by providing a URL. Best when the user asks to show or play media content."
 }

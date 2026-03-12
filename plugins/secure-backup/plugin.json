@@ -3,5 +3,6 @@
   "name": "Secure Backup",
   "version": "1.0.0",
   "description": "Encrypted backup and restore of application data.",
-  "author": "Oboto Team"
+  "author": "Oboto Team",
+  "trait": "Use create_backup to create an encrypted backup of application data and restore_backup to restore from a previous backup. Use list_backups to see available restore points. Best when the user wants to safeguard or recover their data."
 }

@@ -3,5 +3,6 @@
   "name": "Temporal Voyager",
   "version": "1.0.0",
   "description": "Time-travel debugging and simulation tool that records agent loop steps and allows jumping to previous states.",
-  "author": "Oboto Team"
+  "author": "Oboto Team",
+  "trait": "Use temporal_snapshot to record the current agent state, temporal_list to browse recorded snapshots, and temporal_restore to jump back to a previous state. Useful for debugging complex multi-step reasoning or recovering from mistakes."
 }

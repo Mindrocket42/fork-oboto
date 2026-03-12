@@ -2,5 +2,6 @@
   "name": "note-taker",
   "version": "1.0.0",
   "description": "Create, retrieve, and manage notes",
-  "main": "index.mjs"
+  "main": "index.mjs",
+  "trait": "Use create_note to save a named note with content, list_notes to browse saved notes, get_note to retrieve a specific note by ID, and delete_note to remove one. Useful for persisting important information, to-do items, or reference material across conversations."
 }

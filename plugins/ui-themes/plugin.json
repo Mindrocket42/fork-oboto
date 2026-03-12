@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "UI theming, CSS token overrides, custom CSS injection, and display name management",
   "main": "index.mjs",
-  "capabilities": { "tools": true, "ws": true, "ui": true }
+  "capabilities": { "tools": true, "ws": true, "ui": true },
+  "trait": "Use set_theme to switch the UI color scheme, list_themes to see available themes, inject_css to add custom CSS overrides, and set_display_name to change the assistant's displayed name. Best when the user wants to customize the interface appearance."
 }

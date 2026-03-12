@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Workflow automation — todo lists, error recovery, and BubbleLab surface workflows",
   "main": "index.mjs",
-  "capabilities": { "tools": true, "ws": true, "middleware": true }
+  "capabilities": { "tools": true, "ws": true, "middleware": true },
+  "trait": "Use create_todo to manage task lists with checkboxes, run_surface_workflow to execute BubbleLab surface automation, and workflow_recover to retry failed workflow steps. Provides structured task tracking and error recovery for multi-step operations."
 }

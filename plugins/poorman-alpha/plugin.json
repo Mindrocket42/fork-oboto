@@ -2,5 +2,6 @@
   "name": "poorman-alpha",
   "version": "0.3.0",
   "description": "Computational math plugin: unit conversion, symbolic algebra, matrix operations, calculus — pure JavaScript",
-  "main": "index.mjs"
+  "main": "index.mjs",
+  "trait": "Provides compute, advanced_compute, and matrix_compute tools for pure-JavaScript symbolic algebra, unit conversion, calculus (derivatives, integrals), and matrix operations — no external API needed. Use when the math plugin is unavailable or for offline computation."
 }

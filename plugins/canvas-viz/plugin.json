@@ -2,5 +2,6 @@
   "name": "canvas-viz",
   "version": "1.0.0",
   "description": "Generates an interactive canvas visualization based on a description.",
-  "main": "index.mjs"
+  "main": "index.mjs",
+  "trait": "Use create_canvas_visualization to generate interactive HTML5 Canvas visualizations from a text description. Ideal for data plots, diagrams, flowcharts, or any visual explanation that benefits from animation or interactivity."
 }

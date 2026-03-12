@@ -3,5 +3,6 @@
   "name": "Workflow Weaver",
   "version": "1.0.0",
   "description": "Visual orchestration engine for chaining agents, tools, and semantic queries into reusable workflows.",
-  "author": "Oboto Team"
+  "author": "Oboto Team",
+  "trait": "Use weave_workflow to create multi-step workflows that chain tools and agents together, run_workflow to execute a saved workflow, and list_workflows to browse available ones. Best for automating repetitive multi-step processes."
 }

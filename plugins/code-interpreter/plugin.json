@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Secure sandboxed environment for executing Python and JavaScript code with Docker isolation and fallback mode",
   "main": "index.mjs",
-  "capabilities": { "tools": true, "websocket": true }
+  "capabilities": { "tools": true, "websocket": true },
+  "trait": "Use code_create_session to start a sandboxed Python or Node.js session, code_execute to run code and get stdout/stderr, code_upload_file to add files to the workspace, code_install_package to add dependencies, and code_end_session to clean up. Ideal for running computations, data analysis, or testing code snippets securely."
 }

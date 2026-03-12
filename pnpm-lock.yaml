@@ -26,6 +26,9 @@ importers:
       '@nut-tree-fork/nut-js':
         specifier: ^4.2.6
         version: 4.2.6(encoding@0.1.13)
+      '@sschepis/lmscript':
+        specifier: ^0.1.1
+        version: 0.1.1(zod@3.25.76)
       '@sschepis/resolang':
         specifier: ^0.5.0
         version: 0.5.0
@@ -136,9 +139,6 @@ importers:
       '@bubblelab/ts-scope-manager':
         specifier: '*'
         version: 0.1.169(typescript@5.9.3)
-      '@sschepis/lmscript':
-        specifier: '*'
-        version: 0.1.0(zod@3.25.76)
 
   plugins/browser:
     dependencies:
@@ -3248,8 +3248,8 @@ packages:
     resolution: {integrity: sha512-4aUIteuyxtBUhVdiQqcDhKFitwfd9hqoSDYY2KRXiWtgoWJ9Bmise+KfEPDiVHWeJepvF8xJO9/9+WDIciMFFw==}
     engines: {node: '>=18.0.0'}
 
-  '@sschepis/lmscript@0.1.0':
-    resolution: {integrity: sha512-Rj/TZhSOWtvGhHwyZ8R22RtCBmfsiN+3OBbzz0Zy+aKdMpbhdHoemn4DUDJkmwFJVCnjkTIASdyMIIQi6V9jmA==}
+  '@sschepis/lmscript@0.1.1':
+    resolution: {integrity: sha512-CZaAZ+l2Rh924rLQnpaA4OXeetL7I/vfnjBtMn4FiUojiGy/q0GkAPafwbg1chnVjOAwmVlEEjCDuBM/ob6WWA==}
     engines: {node: '>=18.0.0'}
     hasBin: true
     peerDependencies:
@@ -11356,11 +11356,10 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@sschepis/lmscript@0.1.0(zod@3.25.76)':
+  '@sschepis/lmscript@0.1.1(zod@3.25.76)':
     dependencies:
       zod: 3.25.76
       zod-to-json-schema: 3.25.1(zod@3.25.76)
-    optional: true
 
   '@sschepis/resolang@0.4.1': {}
 

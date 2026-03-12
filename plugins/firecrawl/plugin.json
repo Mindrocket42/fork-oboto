@@ -8,5 +8,6 @@
     "schema": {
       "apiKey": { "type": "string", "label": "Firecrawl API Key", "secret": true }
     }
-  }
+  },
+  "trait": "Use firecrawl_scrape to extract clean markdown/HTML from a single URL, firecrawl_crawl to crawl an entire website and get a job ID, and firecrawl_check_job to check crawl status and retrieve results. Best for reading web content or mapping site structures."
 }

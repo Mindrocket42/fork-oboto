@@ -8,6 +8,29 @@ export const AI_PROVIDERS = {
     OPENAI: 'openai',
     GEMINI: 'gemini',
     ANTHROPIC: 'anthropic',
+
+    // Tier 1 — Major commercial APIs
+    MISTRAL: 'mistral',
+    COHERE: 'cohere',
+    AZURE_OPENAI: 'azure_openai',
+    BEDROCK: 'bedrock',
+    XAI: 'xai',
+    DEEPSEEK: 'deepseek',
+
+    // Tier 2 — Fast inference platforms
+    GROQ: 'groq',
+    TOGETHER: 'together',
+    FIREWORKS: 'fireworks',
+    CEREBRAS: 'cerebras',
+    SAMBANOVA: 'sambanova',
+    REPLICATE: 'replicate',
+
+    // Tier 3 — Specialized / aggregator
+    OPENROUTER: 'openrouter',
+    PERPLEXITY: 'perplexity',
+    HUGGINGFACE: 'huggingface',
+    AI21: 'ai21',
+    ANTHROPIC_DIRECT: 'anthropic_direct',
 };
 
 /**
@@ -20,6 +43,32 @@ export const PROVIDER_ENDPOINTS = {
     [AI_PROVIDERS.GEMINI]: null,
     // Anthropic: managed by @anthropic-ai/vertex-sdk — no direct endpoint needed
     [AI_PROVIDERS.ANTHROPIC]: null,
+
+    // Tier 1 — Major commercial APIs
+    [AI_PROVIDERS.MISTRAL]: 'https://api.mistral.ai/v1/chat/completions',
+    [AI_PROVIDERS.COHERE]: 'https://api.cohere.com/v2/chat',
+    // Azure OpenAI: endpoint is per-deployment, set via AZURE_OPENAI_ENDPOINT env var
+    [AI_PROVIDERS.AZURE_OPENAI]: null,
+    // AWS Bedrock: SDK-based, no direct REST endpoint
+    [AI_PROVIDERS.BEDROCK]: null,
+    [AI_PROVIDERS.XAI]: 'https://api.x.ai/v1/chat/completions',
+    [AI_PROVIDERS.DEEPSEEK]: 'https://api.deepseek.com/v1/chat/completions',
+
+    // Tier 2 — Fast inference platforms
+    [AI_PROVIDERS.GROQ]: 'https://api.groq.com/openai/v1/chat/completions',
+    [AI_PROVIDERS.TOGETHER]: 'https://api.together.xyz/v1/chat/completions',
+    [AI_PROVIDERS.FIREWORKS]: 'https://api.fireworks.ai/inference/v1/chat/completions',
+    [AI_PROVIDERS.CEREBRAS]: 'https://api.cerebras.ai/v1/chat/completions',
+    [AI_PROVIDERS.SAMBANOVA]: 'https://api.sambanova.ai/v1/chat/completions',
+    [AI_PROVIDERS.REPLICATE]: 'https://api.replicate.com/v1/predictions',
+
+    // Tier 3 — Specialized / aggregator
+    [AI_PROVIDERS.OPENROUTER]: 'https://openrouter.ai/api/v1/chat/completions',
+    [AI_PROVIDERS.PERPLEXITY]: 'https://api.perplexity.ai/chat/completions',
+    [AI_PROVIDERS.HUGGINGFACE]: 'https://api-inference.huggingface.co/models/',
+    [AI_PROVIDERS.AI21]: 'https://api.ai21.com/studio/v1/chat/completions',
+    // Anthropic Direct: uses Anthropic's own Messages API
+    [AI_PROVIDERS.ANTHROPIC_DIRECT]: 'https://api.anthropic.com/v1/messages',
 };
 
 /**

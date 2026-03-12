@@ -8,5 +8,6 @@
     "schema": {
       "defaultPersonaId": { "type": "string", "label": "Default Persona ID", "description": "Persona to activate on startup" }
     }
-  }
+  },
+  "trait": "Use create_persona to define a new AI personality with a custom system prompt, switch_persona to change the active persona, list_personas to see available ones, and delete_persona to remove one. Use when the user wants a different communication style or specialized behavior."
 }

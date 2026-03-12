@@ -1,0 +1,11 @@
+{
+  "name": "file-editor",
+  "version": "1.0.0",
+  "description": "Advanced LLM-powered file editing tool with search/replace patches, fuzzy matching, and atomic multi-file transactions with rollback",
+  "main": "index.mjs",
+  "capabilities": {
+    "tools": true,
+    "events": true
+  },
+  "trait": "Use file_edit to make surgical edits to files using natural language instructions — the tool generates search/replace patches via the LLM instead of rewriting entire files. Use file_edit_preview to see proposed changes without applying them. Use file_edit_apply_patch to apply raw search/replace patches directly. Use file_edit_transaction to perform atomic multi-file edits with automatic rollback on failure. Ideal for editing large files where rewriting the whole file is impractical or risky."
+}

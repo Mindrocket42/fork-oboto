@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Wrench, ChevronRight, ChevronDown } from 'lucide-react';
 import BrowserPreview from './BrowserPreview';
+import TerminalToolCall from './TerminalToolCall';
+import EmbeddedObject from './EmbeddedObject';
 
 interface ToolCallProps {
   toolName?: string;
@@ -75,63 +77,57 @@ function getSummary(toolName: string | undefined, data: unknown, isResult: boole
   }
 }
 
-/** Collapsible section: shows one truncated line; click to expand full content */
-const CollapsibleSection: React.FC<{
-  label: string;
-  content: unknown;
-  summary?: string;
-  labelColor: string;
-  bgColor: string;
-  textColor: string;
-  borderColor: string;
-}> = ({ label, content, summary, labelColor, bgColor, textColor, borderColor }) => {
-  const [expanded, setExpanded] = useState(false);
-  
-  // Format for display
-  const prettyContent = formatJson(content, true);
-  const inlineContent = formatJson(content, false);
-  const preview = summary || truncate(inlineContent, 100);
-  const isLong = inlineContent.length > 100;
+const VALID_EMBED_TYPES = ['youtube', 'video', 'audio', 'iframe', 'map', 'tweet', 'codepen', 'spotify', 'figma', 'gist', 'loom', 'generic'] as const;
+type EmbedType = typeof VALID_EMBED_TYPES[number];
 
-  return (
-    <div className="flex gap-2">
-      <span className={`text-[9px] font-bold uppercase w-14 text-right shrink-0 pt-1.5 tracking-wider ${labelColor}`}>
-        {label}
-      </span>
-      <div className="flex-1 min-w-0">
-        {/* Header bar with summary - always visible */}
-        <div
-          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors ${bgColor} border ${borderColor} ${isLong ? 'hover:border-zinc-500/30' : ''}`}
-          onClick={() => isLong && setExpanded(e => !e)}
-        >
-          {isLong && (
-            <span className="text-zinc-500 shrink-0 transition-transform duration-200">
-              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            </span>
-          )}
-          <span className={`text-[11px] font-medium ${textColor} truncate`}>
-            {preview}
-          </span>
-        </div>
-        
-        {/* Expanded JSON view */}
-        {expanded && (
-          <pre className={`mt-1.5 text-[11px] font-mono leading-relaxed p-3 rounded-lg border whitespace-pre-wrap break-words transition-all duration-300 animate-fade-in overflow-auto max-h-80 ${bgColor} ${textColor} ${borderColor}`}>
-            {prettyContent}
-          </pre>
-        )}
-      </div>
-    </div>
-  );
-};
-
-import React from 'react';
+/** Parse embed_object tool args into an EmbeddedObject shape for inline rendering */
+function parseEmbedArgs(args: unknown): { embedType: EmbedType; url: string; title?: string; description?: string; thumbnailUrl?: string; startTime?: number; autoplay?: boolean; width?: string; height?: string } | null {
+  if (!args) return null;
+  try {
+    const obj = typeof args === 'string' ? JSON.parse(args) : args;
+    if (!obj || typeof obj !== 'object') return null;
+    const a = obj as Record<string, unknown>;
+    const embedType = a.embed_type as string;
+    const url = a.url as string;
+    if (!embedType || !url) return null;
+    if (!VALID_EMBED_TYPES.includes(embedType as EmbedType)) return null;
+    return {
+      embedType: embedType as EmbedType,
+      url,
+      title: a.title as string | undefined,
+      description: a.description as string | undefined,
+      thumbnailUrl: a.thumbnail_url as string | undefined,
+      startTime: a.start_time as number | undefined,
+      autoplay: a.autoplay as boolean | undefined,
+      width: a.width as string | undefined,
+      height: a.height as string | undefined,
+    };
+  } catch { return null; }
+}
 
 const ToolCall: React.FC<ToolCallProps> = ({ toolName, args, result }) => {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     const name = toolName?.toLowerCase() || '';
     return name.includes('write_file') || name.includes('read_file') || name.includes('edit_file') || name.includes('apply_diff');
   });
+  const [resultExpanded, setResultExpanded] = useState(false);
+  const [argsExpanded, setArgsExpanded] = useState(false);
+
+  // Render run_command as an inline terminal — checked after hooks
+  // to satisfy Rules of Hooks, but before heavier parsing below.
+  const isRunCommand = toolName?.toLowerCase() === 'run_command';
+  if (isRunCommand) {
+    return <TerminalToolCall args={args} result={result} />;
+  }
+
+  // Render embed_object as an inline embedded media player (YouTube, Spotify, etc.)
+  const isEmbed = toolName?.toLowerCase() === 'embed_object';
+  if (isEmbed) {
+    const embedData = parseEmbedArgs(args);
+    if (embedData) {
+      return <EmbeddedObject embed={embedData} />;
+    }
+  }
 
   // Generate summaries for quick preview
   const argsSummary = getSummary(toolName, args, false);
@@ -164,39 +160,60 @@ const ToolCall: React.FC<ToolCallProps> = ({ toolName, args, result }) => {
     }
   }
 
+  // Format output for full-width display
+  const resultPretty = result !== undefined && result !== null ? formatJson(result, true) : '';
+  const resultInline = result !== undefined && result !== null ? formatJson(result, false) : '';
+  const resultPreview = resultSummary || truncate(resultInline, 120);
+  const resultIsLong = resultInline.length > 120;
+
   return (
     <div className="w-full bg-[#0a0a0a] border border-zinc-800/30 rounded-xl overflow-hidden shadow-lg shadow-black/10 my-2 transition-all duration-300 hover:border-zinc-700/40 animate-fade-in-up">
-      <div 
+      <div
         className="flex items-center gap-2 px-4 py-2.5 bg-zinc-900/30 border-b border-zinc-800/20 cursor-pointer hover:bg-zinc-800/50 transition-colors"
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
         <div className="p-1 rounded-md bg-amber-500/10">
           <Wrench size={12} className="text-amber-500" />
         </div>
-        <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400 flex-1">
+        <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400 shrink-0">
           {toolName}
         </span>
-        <span className="text-zinc-600 transition-transform duration-200">
+        {argsSummary && (
+          <span
+            className={`text-[11px] font-medium text-amber-200/90 bg-amber-500/5 border border-amber-500/15 px-2.5 py-0.5 rounded-lg truncate min-w-0 cursor-pointer hover:bg-amber-500/10 hover:border-amber-500/30 transition-colors ${argsExpanded && !isCollapsed ? 'ring-1 ring-amber-500/30' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isCollapsed) {
+                setArgsExpanded(prev => !prev);
+              } else {
+                // If collapsed, expand panel and show args
+                setIsCollapsed(false);
+                setArgsExpanded(true);
+              }
+            }}
+          >
+            {argsSummary}
+          </span>
+        )}
+        <span className="ml-auto text-zinc-600 transition-transform duration-200 shrink-0">
           {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </span>
       </div>
       
       {!isCollapsed && (
-        <div className="p-4 space-y-3 animate-fade-in">
-          <CollapsibleSection
-            label="Input"
-            content={args}
-            summary={argsSummary}
-            labelColor="text-zinc-500"
-            bgColor="bg-amber-500/5"
-            textColor="text-amber-200/90"
-            borderColor="border-amber-500/15"
-          />
-          
+        <div className="animate-fade-in">
+          {/* Expanded input parameters block */}
+          {argsExpanded && (
+            <div className="px-4 pt-3 pb-1">
+              <pre className="text-[11px] font-mono leading-relaxed p-3 rounded-lg border whitespace-pre-wrap break-words transition-all duration-300 animate-fade-in overflow-auto max-h-80 bg-amber-500/5 text-amber-200/90 border-amber-500/15">
+                {formatJson(args, true)}
+              </pre>
+            </div>
+          )}
           {browserPreviewData ? (
-              <div className="mt-4 animate-fade-in">
-                  <BrowserPreview 
-                      url={browserPreviewData.url} 
+              <div className="p-4 animate-fade-in">
+                  <BrowserPreview
+                      url={browserPreviewData.url}
                       title={browserPreviewData.title}
                       screenshot={browserPreviewData.screenshot}
                       logs={browserPreviewData.logs || []}
@@ -207,15 +224,29 @@ const ToolCall: React.FC<ToolCallProps> = ({ toolName, args, result }) => {
               </div>
           ) : (
               result !== undefined && result !== null && (
-              <CollapsibleSection
-                  label="Output"
-                  content={result}
-                  summary={resultSummary || undefined}
-                  labelColor="text-zinc-500"
-                  bgColor="bg-emerald-500/5"
-                  textColor="text-emerald-400"
-                  borderColor="border-emerald-500/15"
-              />
+              <div className="w-full">
+                {/* Output summary bar */}
+                <div
+                  className={`flex items-center gap-2 px-4 py-2.5 w-full ${resultIsLong ? 'cursor-pointer hover:bg-emerald-500/5' : ''} transition-colors`}
+                  onClick={() => resultIsLong && setResultExpanded(e => !e)}
+                >
+                  {resultIsLong && (
+                    <span className="text-zinc-500 shrink-0 transition-transform duration-200">
+                      {resultExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    </span>
+                  )}
+                  <span className="text-[11px] font-medium text-emerald-400 truncate">
+                    {resultPreview}
+                  </span>
+                </div>
+                
+                {/* Expanded output view */}
+                {resultExpanded && (
+                  <pre className="mx-4 mb-4 text-[11px] font-mono leading-relaxed p-3 rounded-lg border whitespace-pre-wrap break-words transition-all duration-300 animate-fade-in overflow-auto max-h-80 bg-emerald-500/5 text-emerald-400 border-emerald-500/15">
+                    {resultPretty}
+                  </pre>
+                )}
+              </div>
               )
           )}
         </div>

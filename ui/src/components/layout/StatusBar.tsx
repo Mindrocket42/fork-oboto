@@ -294,10 +294,14 @@ const StatusBar: React.FC<StatusBarProps> = ({
             className="flex items-center gap-1 hover:bg-white/10 px-1 py-0.5 rounded transition-colors cursor-pointer"
             title="Toggle Tasks Panel (⌘T)"
           >
-            <Zap size={11} />
+            {runningTaskCount > 0 ? (
+              <Loader2 size={11} className="animate-spin text-amber-400" />
+            ) : (
+              <Zap size={11} />
+            )}
             Tasks
             {runningTaskCount > 0 && (
-              <span className="px-1 py-0.5 text-[8px] font-bold rounded-full bg-amber-500/20 text-amber-400 tabular-nums animate-pulse">
+              <span className="px-1 py-0.5 text-[8px] font-bold rounded-full bg-amber-500/20 text-amber-400 tabular-nums">
                 {runningTaskCount}
               </span>
             )}

@@ -45,7 +45,8 @@ export class CognitiveProvider extends AgenticProvider {
                 aiProvider: deps.aiProvider,
                 toolExecutor: deps.toolExecutor,
                 historyManager: deps.historyManager,
-                workingDir: deps.workingDir
+                workingDir: deps.workingDir,
+                facade: deps.facade
             },
             // Pass any cognitive-specific config overrides
             deps.cognitiveConfig || {}
