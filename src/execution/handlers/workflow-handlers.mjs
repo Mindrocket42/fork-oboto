@@ -58,7 +58,7 @@ export class WorkflowHandlers {
             
             return `Step ${step_index + 1} status updated to ${status}`;
         } else {
-            return `Error: Invalid step index or no active todo list`;
+            return `[error] update_todo_status: invalid step index ${step_index} or no active todo list. Use: create_todo_list to start one.`;
         }
     }
 
@@ -112,7 +112,7 @@ export class WorkflowHandlers {
                 break;
                 
             default:
-                recoveryResult = "Unknown recovery strategy";
+                recoveryResult = `[error] analyze_and_recover: unknown recovery strategy '${recovery_strategy}'. Valid strategies: retry_with_alternative, simplify_approach, change_method, install_dependencies, fix_syntax`;
         }
         
         return recoveryResult;
@@ -225,7 +225,7 @@ export class WorkflowHandlers {
 
         } catch (error) {
             consoleStyler.failSpinner('tts', `Error: ${error.message}`);
-            return `Error converting text to speech: ${error.message}`;
+            return `[error] speak_text: ${error.message}`;
         }
     }
 }

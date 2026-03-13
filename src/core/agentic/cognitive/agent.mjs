@@ -1522,7 +1522,7 @@ class CognitiveAgent {
           return parsed;
         } catch {
           // Check for plain-text error strings from the executor
-          if (content.startsWith('Error:')) {
+          if (content.startsWith('[error]') || content.startsWith('Error:')) {
             return { success: false, error: content };
           }
           return { result: content };

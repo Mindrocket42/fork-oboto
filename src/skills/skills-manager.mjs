@@ -602,4 +602,78 @@ export class SkillsManager {
             return false;
         }
     }
+
+    /**
+     * Install npm dependencies for all skills that contain a package.json.
+     * This is critical for git-submodule skills that ship their own deps.
+     * Skips any skill directory that already has a node_modules folder.
+     *
+     * @param {object} [options]
+     * @param {boolean} [options.force=false] - Re-install even if node_modules exists
+     * @param {string} [options.packageManager] - Package manager to use (default: auto-detect from env or 'pnpm')
+     * @returns {Promise<{installed: string[], skipped: string[], failed: string[]}>}
+     */
+    async installSkillDependencies({ force = false, packageManager } = {}) {
+        const pm = packageManager || process.env.SKILL_PKG_MANAGER || 'pnpm';
+        const results = { installed: [], skipped: [], failed: [] };
+
+        const dirs = [this.globalSkillsDir, this.workspaceSkillsDir];
+
+        for (const baseDir of dirs) {
+            // Check if directory exists
+            try {
+                await fs.access(baseDir);
+            } catch {
+                continue; // Directory doesn't exist, skip
+            }
+
+            let entries;
+            try {
+                entries = await fs.readdir(baseDir, { withFileTypes: true });
+            } catch {
+                continue;
+            }
+
+            for (const entry of entries) {
+                if (!entry.isDirectory()) continue;
+
+                const skillDir = path.join(baseDir, entry.name);
+                const pkgJsonPath = path.join(skillDir, 'package.json');
+
+                // Check if this skill has a package.json
+                try {
+                    await fs.access(pkgJsonPath);
+                } catch {
+                    continue; // No package.json, nothing to install
+                }
+
+                // Skip if node_modules already exists (unless force)
+                if (!force) {
+                    try {
+                        await fs.access(path.join(skillDir, 'node_modules'));
+                        results.skipped.push(entry.name);
+                        continue;
+                    } catch {
+                        // node_modules doesn't exist, proceed with install
+                    }
+                }
+
+                // Run package manager install
+                consoleStyler.log('system', `Installing dependencies for skill: ${entry.name} (using ${pm})...`);
+                try {
+                    await execFileAsync(pm, ['install', '--prod'], {
+                        cwd: skillDir,
+                        timeout: 120000
+                    });
+                    results.installed.push(entry.name);
+                    consoleStyler.log('system', `✓ Installed dependencies for skill: ${entry.name}`);
+                } catch (error) {
+                    results.failed.push(entry.name);
+                    consoleStyler.log('error', `✗ Failed to install dependencies for skill ${entry.name}: ${error.message}`);
+                }
+            }
+        }
+
+        return results;
+    }
 }

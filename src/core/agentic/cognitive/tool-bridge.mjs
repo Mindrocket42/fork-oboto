@@ -57,10 +57,10 @@ export class ToolBridge {
                             toolCall,
                             this._context
                         );
-                        // ToolExecutor returns errors inline in content prefixed with "Error:"
+                        // ToolExecutor returns errors inline in content prefixed with "[error]" or legacy "Error:"
                         if (
                             typeof result.content === 'string' &&
-                            result.content.startsWith('Error:')
+                            (result.content.startsWith('[error]') || result.content.startsWith('Error:'))
                         ) {
                             throw new Error(result.content);
                         }

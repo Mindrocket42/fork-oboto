@@ -10,7 +10,7 @@ export class AsyncTaskHandlers {
         const { task_description, query, context } = args;
         
         if (!this.taskManager) {
-            return "Error: Task Manager is not available. Background tasks are disabled.";
+            return "[error] spawn_background_task: Task Manager is not available. Background tasks are disabled.";
         }
 
         const task = this.taskManager.spawnTask(
@@ -31,11 +31,11 @@ export class AsyncTaskHandlers {
         const { workspace_path, task_description, query, context, init_git = false } = args;
 
         if (!this.taskManager) {
-            return "Error: Task Manager is not available. Background tasks are disabled.";
+            return "[error] spawn_workspace_task: Task Manager is not available. Background tasks are disabled.";
         }
 
         if (!workspace_path) {
-            return "Error: workspace_path is required.";
+            return "[error] spawn_workspace_task: workspace_path is required. Usage: spawn_workspace_task({ workspace_path, task_description, query })";
         }
 
         try {
@@ -70,12 +70,12 @@ export class AsyncTaskHandlers {
         const { task_id } = args;
         
         if (!this.taskManager) {
-            return "Error: Task Manager is not available.";
+            return "[error] check_task_status: Task Manager is not available.";
         }
 
         const task = this.taskManager.getTask(task_id);
         if (!task) {
-            return `Error: Task ID ${task_id} not found.`;
+            return `[error] check_task_status: task "${task_id}" not found. Use: list_background_tasks to see available tasks.`;
         }
 
         let response = `Task: ${task.description} (${task.id})\nStatus: ${task.status}\nProgress: ${task.progress || 0}%`;
@@ -96,7 +96,7 @@ export class AsyncTaskHandlers {
         const { status_filter = 'all' } = args;
         
         if (!this.taskManager) {
-            return "Error: Task Manager is not available.";
+            return "[error] list_background_tasks: Task Manager is not available.";
         }
 
         const tasks = this.taskManager.listTasks(status_filter);
@@ -117,14 +117,14 @@ export class AsyncTaskHandlers {
         const { task_id, timeout_seconds = 300 } = args;
         
         if (!this.taskManager) {
-            return "Error: Task Manager is not available.";
+            return "[error] wait_for_task: Task Manager is not available.";
         }
 
         try {
             const task = await this.taskManager.waitForTask(task_id, timeout_seconds);
             return `Task Completed.\nID: ${task.id}\nStatus: ${task.status}\nResult: ${task.result || task.error}`;
         } catch (error) {
-            return `Error: ${error.message}`;
+            return `[error] wait_for_task: ${error.message}. Use: check_task_status("${task_id}") to inspect current state.`;
         }
     }
 
@@ -132,14 +132,14 @@ export class AsyncTaskHandlers {
         const { task_id } = args;
         
         if (!this.taskManager) {
-            return "Error: Task Manager is not available.";
+            return "[error] cancel_background_task: Task Manager is not available.";
         }
 
         const success = this.taskManager.cancelTask(task_id);
         if (success) {
             return `Task ${task_id} cancelled successfully.`;
         } else {
-            return `Could not cancel task ${task_id}. It may not exist or is not in a cancellable state.`;
+            return `[error] cancel_background_task: could not cancel "${task_id}". It may not exist or is not in a cancellable state. Use: list_background_tasks to see available tasks.`;
         }
     }
 
@@ -147,11 +147,11 @@ export class AsyncTaskHandlers {
         const { task_id, last_n_lines = 20 } = args;
         
         if (!this.taskManager) {
-            return "Error: Task Manager is not available.";
+            return "[error] get_task_output: Task Manager is not available.";
         }
 
         const task = this.taskManager.getTask(task_id);
-        if (!task) return `Task ${task_id} not found.`;
+        if (!task) return `[error] get_task_output: task "${task_id}" not found. Use: list_background_tasks to see available tasks.`;
 
         const logs = task.outputLog.slice(-last_n_lines);
         return `Output for task ${task_id} (last ${logs.length} lines):\n\n${logs.join('\n')}`;
@@ -161,7 +161,7 @@ export class AsyncTaskHandlers {
         const { name, description, query, interval_minutes, max_runs, skip_if_running } = args;
         
         if (!this.schedulerService) {
-            return "Error: Scheduler Service is not available.";
+            return "[error] create_recurring_task: Scheduler Service is not available.";
         }
 
         try {
@@ -176,7 +176,7 @@ export class AsyncTaskHandlers {
             
             return `Recurring task created successfully.\nID: ${schedule.id}\nName: ${schedule.name}\nRuns every: ${interval_minutes} minutes`;
         } catch (error) {
-            return `Error creating schedule: ${error.message}`;
+            return `[error] create_recurring_task: ${error.message}`;
         }
     }
 
@@ -184,7 +184,7 @@ export class AsyncTaskHandlers {
         const { status_filter = 'all' } = args;
         
         if (!this.schedulerService) {
-            return "Error: Scheduler Service is not available.";
+            return "[error] list_recurring_tasks: Scheduler Service is not available.";
         }
 
         const schedules = this.schedulerService.listSchedules(status_filter);
@@ -201,25 +201,25 @@ export class AsyncTaskHandlers {
         const { schedule_id, action } = args;
         
         if (!this.schedulerService) {
-            return "Error: Scheduler Service is not available.";
+            return "[error] manage_recurring_task: Scheduler Service is not available.";
         }
 
         let result = false;
         switch (action) {
             case 'pause':
                 result = this.schedulerService.pauseSchedule(schedule_id);
-                return result ? `Schedule ${schedule_id} paused.` : `Failed to pause schedule ${schedule_id}.`;
+                return result ? `Schedule ${schedule_id} paused.` : `[error] manage_recurring_task: failed to pause "${schedule_id}". Use: list_recurring_tasks to verify schedule exists.`;
             case 'resume':
                 result = this.schedulerService.resumeSchedule(schedule_id);
-                return result ? `Schedule ${schedule_id} resumed.` : `Failed to resume schedule ${schedule_id}.`;
+                return result ? `Schedule ${schedule_id} resumed.` : `[error] manage_recurring_task: failed to resume "${schedule_id}". Use: list_recurring_tasks to verify schedule exists.`;
             case 'delete':
                 result = this.schedulerService.deleteSchedule(schedule_id);
-                return result ? `Schedule ${schedule_id} deleted.` : `Failed to delete schedule ${schedule_id}.`;
+                return result ? `Schedule ${schedule_id} deleted.` : `[error] manage_recurring_task: failed to delete "${schedule_id}". Use: list_recurring_tasks to verify schedule exists.`;
             case 'trigger_now':
                 result = this.schedulerService.triggerNow(schedule_id);
-                return result ? `Schedule ${schedule_id} triggered.` : `Failed to trigger schedule ${schedule_id}.`;
+                return result ? `Schedule ${schedule_id} triggered.` : `[error] manage_recurring_task: failed to trigger "${schedule_id}". Use: list_recurring_tasks to verify schedule exists.`;
             default:
-                return `Unknown action: ${action}`;
+                return `[error] manage_recurring_task: unknown action "${action}". Valid actions: pause, resume, delete, trigger_now`;
         }
     }
 
@@ -233,7 +233,7 @@ export class AsyncTaskHandlers {
         const { question } = args;
 
         if (!this.eventBus) {
-            return "Error: Event bus is not available. Cannot ask questions.";
+            return "[error] ask_blocking_question: Event bus is not available. Cannot ask questions.";
         }
 
         const questionId = `q-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;

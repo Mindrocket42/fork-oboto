@@ -314,7 +314,7 @@ const handleSurfaceReadFile = wsHandler(async (data, ctx, svc) => {
 const handleSurfaceWriteFile = wsHandler(async (data, ctx, svc) => {
     const { requestId, path: filePath, content } = data.payload;
     const result = await svc.writeFile({ path: filePath, content });
-    const success = !result.startsWith('Error');
+    const success = !result.startsWith('[error]') && !result.startsWith('Error');
     wsSend(ctx.ws, 'surface-file-write-result', { requestId, success, message: result, error: success ? null : result });
 }, { require: FT, requireLabel: FT_LABEL });
 

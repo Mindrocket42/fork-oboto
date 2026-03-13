@@ -3,9 +3,15 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { consoleStyler } from '../ui/console-styler.mjs';
 
+const MAX_REVISIONS = 50;
+
 /**
  * SurfaceManager handles the persistence and retrieval of Surface metadata and component source code.
  * Surfaces are stored in .surfaces/ directory in the workspace.
+ *
+ * Revision system: Every mutation creates an automatic snapshot in
+ * `.surfaces/{id}.revisions/rev-NNN.json`. Each snapshot contains the full
+ * surface metadata + all component sources inline, enabling instant rollback.
  */
 export class SurfaceManager {
     constructor(workspaceRoot) {
@@ -156,6 +162,9 @@ export class SurfaceManager {
         const surface = await this.getSurface(surfaceId);
         if (!surface) throw new Error(`Surface ${surfaceId} not found`);
 
+        // Snapshot BEFORE the mutation so we can revert to this state
+        await this._createRevision(surfaceId, surface, `update_component:${componentName}`);
+
         const componentId = `comp-${componentName}`;
         const sourceFileName = `${componentName}.jsx`;
         const relativeSourcePath = path.join(surfaceId, sourceFileName);
@@ -218,6 +227,9 @@ export class SurfaceManager {
 
         const compIndex = surface.components.findIndex(c => c.name === componentName);
         if (compIndex === -1) return false;
+
+        // Snapshot before removal
+        await this._createRevision(surfaceId, surface, `remove_component:${componentName}`);
 
         // Remove source file
         try {
@@ -301,6 +313,8 @@ export class SurfaceManager {
         const surface = await this.getSurface(id);
         if (!surface) throw new Error(`Surface ${id} not found`);
 
+        await this._createRevision(id, surface, 'update_layout');
+
         surface.layout = layout;
         surface.updatedAt = new Date().toISOString();
 
@@ -325,6 +339,8 @@ export class SurfaceManager {
         if (!surface.layout || typeof surface.layout !== 'object' || surface.layout.type !== 'flex-grid') {
             throw new Error('Surface layout is not flex-grid');
         }
+
+        await this._createRevision(surfaceId, surface, `place_component:${componentName}→${cellId}`);
 
         // Find the target cell across all rows
         let targetCell = null;
@@ -479,5 +495,207 @@ export class SurfaceManager {
         );
 
         return surface.pinned;
+    }
+
+    // ─── Revision System ─────────────────────────────────────────────
+
+    /**
+     * Return the revisions directory path for a surface.
+     * @param {string} surfaceId
+     * @returns {string}
+     */
+    _getRevisionsDir(surfaceId) {
+        return path.join(this.surfacesDir, `${surfaceId}.revisions`);
+    }
+
+    /**
+     * Collect all component JSX sources for a surface into a map.
+     * @param {string} surfaceId
+     * @param {object} surface Surface metadata (needs .components)
+     * @returns {Promise<Record<string, string>>} componentName → source
+     */
+    async _collectComponentSources(surfaceId, surface) {
+        const sources = {};
+        for (const comp of surface.components) {
+            try {
+                const src = await fs.readFile(
+                    path.join(this.surfacesDir, surfaceId, `${comp.name}.jsx`),
+                    'utf8'
+                );
+                sources[comp.name] = src;
+            } catch {
+                // Component source may not exist yet (shouldn't happen, but be safe)
+            }
+        }
+        return sources;
+    }
+
+    /**
+     * Determine the next revision number by scanning existing rev files.
+     * @param {string} revisionsDir
+     * @returns {Promise<number>}
+     */
+    async _getNextRevisionNumber(revisionsDir) {
+        try {
+            const files = await fs.readdir(revisionsDir);
+            let max = 0;
+            for (const f of files) {
+                const m = f.match(/^rev-(\d+)\.json$/);
+                if (m) {
+                    const n = parseInt(m[1], 10);
+                    if (n > max) max = n;
+                }
+            }
+            return max + 1;
+        } catch {
+            return 1;
+        }
+    }
+
+    /**
+     * Remove oldest revisions when count exceeds MAX_REVISIONS.
+     * @param {string} revisionsDir
+     */
+    async _pruneRevisions(revisionsDir) {
+        try {
+            const files = (await fs.readdir(revisionsDir))
+                .filter(f => /^rev-\d+\.json$/.test(f))
+                .sort((a, b) => {
+                    const na = parseInt(a.match(/\d+/)[0], 10);
+                    const nb = parseInt(b.match(/\d+/)[0], 10);
+                    return na - nb;
+                });
+            const excess = files.length - MAX_REVISIONS;
+            if (excess > 0) {
+                for (let i = 0; i < excess; i++) {
+                    await fs.unlink(path.join(revisionsDir, files[i]));
+                }
+            }
+        } catch {
+            // ignore – directory may not exist yet
+        }
+    }
+
+    /**
+     * Create a revision snapshot for the given surface.
+     * Called BEFORE a mutation is applied so the snapshot represents the
+     * state the user can revert to.
+     *
+     * @param {string} surfaceId
+     * @param {object} surface  Current surface metadata (pre-mutation)
+     * @param {string} action   Human-readable label, e.g. "update_component:Header"
+     */
+    async _createRevision(surfaceId, surface, action) {
+        const revDir = this._getRevisionsDir(surfaceId);
+        await fs.mkdir(revDir, { recursive: true });
+
+        const revNum = await this._getNextRevisionNumber(revDir);
+        const sources = await this._collectComponentSources(surfaceId, surface);
+
+        const snapshot = {
+            revision: revNum,
+            timestamp: new Date().toISOString(),
+            action,
+            surface: JSON.parse(JSON.stringify(surface)), // deep clone
+            componentSources: sources
+        };
+
+        await fs.writeFile(
+            path.join(revDir, `rev-${String(revNum).padStart(4, '0')}.json`),
+            JSON.stringify(snapshot, null, 2)
+        );
+
+        await this._pruneRevisions(revDir);
+    }
+
+    /**
+     * List all available revisions for a surface, newest-first.
+     * @param {string} surfaceId
+     * @returns {Promise<Array<{revision: number, timestamp: string, action: string}>>}
+     */
+    async listRevisions(surfaceId) {
+        const revDir = this._getRevisionsDir(surfaceId);
+        try {
+            const files = (await fs.readdir(revDir))
+                .filter(f => /^rev-\d+\.json$/.test(f))
+                .sort((a, b) => {
+                    const na = parseInt(a.match(/\d+/)[0], 10);
+                    const nb = parseInt(b.match(/\d+/)[0], 10);
+                    return nb - na; // newest first
+                });
+
+            const revisions = [];
+            for (const f of files) {
+                const content = JSON.parse(await fs.readFile(path.join(revDir, f), 'utf8'));
+                revisions.push({
+                    revision: content.revision,
+                    timestamp: content.timestamp,
+                    action: content.action,
+                    componentCount: Object.keys(content.componentSources || {}).length
+                });
+            }
+            return revisions;
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Revert a surface to a specific revision number.
+     * Restores the surface metadata AND all component JSX sources.
+     *
+     * @param {string} surfaceId
+     * @param {number} revisionNumber
+     * @returns {Promise<object>} The restored surface metadata
+     */
+    async revertToRevision(surfaceId, revisionNumber) {
+        const revDir = this._getRevisionsDir(surfaceId);
+        const padded = String(revisionNumber).padStart(4, '0');
+        const revFile = path.join(revDir, `rev-${padded}.json`);
+
+        let snapshot;
+        try {
+            snapshot = JSON.parse(await fs.readFile(revFile, 'utf8'));
+        } catch {
+            throw new Error(`Revision ${revisionNumber} not found for surface ${surfaceId}`);
+        }
+
+        // Snapshot the CURRENT state before reverting (so revert itself is undoable)
+        const currentSurface = await this.getSurface(surfaceId);
+        if (currentSurface) {
+            await this._createRevision(surfaceId, currentSurface, `revert_to:${revisionNumber}`);
+        }
+
+        const restoredSurface = snapshot.surface;
+        restoredSurface.updatedAt = new Date().toISOString();
+
+        // 1. Write restored metadata
+        await fs.writeFile(
+            path.join(this.surfacesDir, `${surfaceId}.sur`),
+            JSON.stringify(restoredSurface, null, 2)
+        );
+
+        // 2. Restore component sources – remove existing, write snapshot's
+        const compDir = path.join(this.surfacesDir, surfaceId);
+        await fs.mkdir(compDir, { recursive: true });
+
+        // Clear existing JSX files
+        try {
+            const existing = await fs.readdir(compDir);
+            for (const f of existing) {
+                if (f.endsWith('.jsx')) {
+                    await fs.unlink(path.join(compDir, f));
+                }
+            }
+        } catch {
+            // ignore
+        }
+
+        // Write snapshot sources
+        for (const [name, source] of Object.entries(snapshot.componentSources || {})) {
+            await fs.writeFile(path.join(compDir, `${name}.jsx`), source);
+        }
+
+        return restoredSurface;
     }
 }

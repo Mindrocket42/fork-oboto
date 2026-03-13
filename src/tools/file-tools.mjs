@@ -34,7 +34,25 @@ export class FileTools {
             const resolvedPath = this.validatePath(filePath, _allowOutside);
             
             if (!fs.existsSync(resolvedPath)) {
-                throw new Error(`File not found: ${filePath}`);
+                // Navigational error: tell the agent what to do instead
+                const dirPath = path.dirname(filePath) || '.';
+                return `[error] read_file: file not found: ${filePath}. ` +
+                    `Use: list_files({ path: "${dirPath}" }) to see available files.`;
+            }
+            
+            // Check if file is binary before reading
+            const ext = path.extname(filePath).toLowerCase();
+            const binaryExts = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp',
+                '.mp3', '.mp4', '.wav', '.ogg', '.zip', '.tar', '.gz', '.7z', '.rar',
+                '.exe', '.dll', '.so', '.dylib', '.woff', '.woff2', '.ttf', '.eot'];
+            if (binaryExts.includes(ext)) {
+                const stat = await fs.promises.stat(resolvedPath);
+                const sizeKB = (stat.size / 1024).toFixed(1);
+                const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico'].includes(ext);
+                const suggestion = isImage
+                    ? `Use: run_command({ command: "file ${filePath}" }) to inspect metadata`
+                    : `Use: run_command({ command: "file ${filePath}" }) to identify type, or run_command({ command: "xxd ${filePath} | head" }) to inspect bytes`;
+                return `[error] read_file: binary file (${sizeKB}KB, ${ext}). ${suggestion}`;
             }
             
             const content = await fs.promises.readFile(resolvedPath, encoding);
@@ -43,7 +61,10 @@ export class FileTools {
             return content;
         } catch (error) {
             consoleStyler.log('error', `Read file failed: ${error.message}`);
-            return `Error reading file: ${error.message}`;
+            if (error.message.includes('Access denied')) {
+                return `[error] read_file: ${error.message}. The file is outside the workspace. Ask the user for permission or use a path within the workspace.`;
+            }
+            return `[error] read_file: ${error.message}`;
         }
     }
 
@@ -52,7 +73,8 @@ export class FileTools {
         const { path: filePath, content, encoding = 'utf8', _allowOutside = false } = args;
         
         if (content === undefined || content === null) {
-            return `Error writing file: No content provided for ${filePath || '(no path)'}`;
+            return `[error] write_file: no content provided for ${filePath || '(no path)'}. ` +
+                `Ensure the "content" parameter is set.`;
         }
         
         consoleStyler.log('working', `Writing file: ${filePath}`);
@@ -70,7 +92,7 @@ export class FileTools {
             if (config.tools.allowedFileExtensions && config.tools.allowedFileExtensions.length > 0) {
                 const ext = path.extname(filePath);
                 if (!config.tools.allowedFileExtensions.includes(ext) && !config.tools.enableUnsafeTools) {
-                    throw new Error(`File extension '${ext}' not allowed. Allowed: ${config.tools.allowedFileExtensions.join(', ')}`);
+                    return `[error] write_file: extension '${ext}' not allowed. Allowed: ${config.tools.allowedFileExtensions.join(', ')}`;
                 }
             }
             
@@ -80,7 +102,10 @@ export class FileTools {
             return `Successfully wrote to ${filePath}`;
         } catch (error) {
             consoleStyler.log('error', `Write file failed: ${error.message}`);
-            return `Error writing file: ${error.message}`;
+            if (error.message.includes('Access denied')) {
+                return `[error] write_file: ${error.message}. The path is outside the workspace.`;
+            }
+            return `[error] write_file: ${error.message}`;
         }
     }
 
@@ -94,7 +119,9 @@ export class FileTools {
             const resolvedPath = this.validatePath(dirPath, _allowOutside);
             
             if (!fs.existsSync(resolvedPath)) {
-                throw new Error(`Directory not found: ${dirPath}`);
+                const parentDir = path.dirname(dirPath) || '.';
+                return `[error] list_files: directory not found: ${dirPath}. ` +
+                    `Use: list_files({ path: "${parentDir}" }) to see available directories.`;
             }
             
             const files = [];
@@ -139,7 +166,10 @@ export class FileTools {
             
         } catch (error) {
             consoleStyler.log('error', `List files failed: ${error.message}`);
-            return `Error listing files: ${error.message}`;
+            if (error.message.includes('Access denied')) {
+                return `[error] list_files: ${error.message}. The path is outside the workspace.`;
+            }
+            return `[error] list_files: ${error.message}. Try: list_files({ path: "." }) to start from workspace root.`;
         }
     }
 
@@ -311,11 +341,14 @@ export class FileTools {
             const absPath = pathModule.default.resolve(this.workspaceRoot || process.cwd(), filePath);
             
             if (!_allowOutside && !absPath.startsWith(this.workspaceRoot)) {
-                return `Access denied: Path '${filePath}' is outside the workspace root.`;
+                return `[error] edit_file: access denied — path '${filePath}' is outside the workspace root.`;
             }
             
             if (!fs.existsSync(absPath)) {
-                return `Error: File not found: ${filePath}`;
+                const dirPath = pathModule.default.dirname(filePath) || '.';
+                return `[error] edit_file: file not found: ${filePath}. ` +
+                    `Use: list_files({ path: "${dirPath}" }) to see available files, ` +
+                    `or write_file({ path: "${filePath}", content: "..." }) to create it.`;
             }
             
             let content = fs.readFileSync(absPath, 'utf8');
@@ -325,7 +358,8 @@ export class FileTools {
                 const edit = edits[i];
                 const idx = content.indexOf(edit.search);
                 if (idx === -1) {
-                    changes.push(`⚠ Edit ${i + 1}: Search text not found: "${edit.search.substring(0, 60)}${edit.search.length > 60 ? '...' : ''}"`);
+                    changes.push(`⚠ Edit ${i + 1}: Search text not found: "${edit.search.substring(0, 60)}${edit.search.length > 60 ? '...' : ''}". ` +
+                        `Use: read_file({ path: "${filePath}" }) to see current file content and verify your search text.`);
                     continue;
                 }
                 content = content.substring(0, idx) + edit.replace + content.substring(idx + edit.search.length);
@@ -335,7 +369,7 @@ export class FileTools {
             fs.writeFileSync(absPath, content, 'utf8');
             return `File edited: ${filePath}\n${changes.join('\n')}`;
         } catch (error) {
-            return `Error editing file: ${error.message}`;
+            return `[error] edit_file: ${error.message}`;
         }
     }
 }

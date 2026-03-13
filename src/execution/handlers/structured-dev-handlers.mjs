@@ -55,7 +55,7 @@ export class StructuredDevHandlers {
     async readManifest(args) {
         consoleStyler.log('system', 'Reading manifest...');
         const content = await this.flowManager.readManifest();
-        if (!content) return "No manifest found.";
+        if (!content) return "[error] read_manifest: no manifest found. Use: init_structured_dev to initialize one.";
         return content;
     }
 
@@ -81,7 +81,7 @@ export class StructuredDevHandlers {
         if (level === 'component') {
             return await c4Visualizer.generateComponentDiagram();
         }
-        return "Unsupported diagram level.";
+        return `[error] generate_c4_diagram: unsupported diagram level '${level}'. Supported: component`;
     }
 
     async buildKnowledgeGraph(args, knowledgeGraphBuilder) {
@@ -143,7 +143,7 @@ export class StructuredDevHandlers {
             });
             return result.message;
         } else {
-            return `Failed to create plan: ${result.message}`;
+            return `[error] create_implementation_plan: ${result.message}`;
         }
     }
 
@@ -152,7 +152,7 @@ export class StructuredDevHandlers {
         
         // Ensure AI Assistant class is available
         if (!planExecutor.AiAssistant) {
-             return "Error: AI Assistant class not available for agent execution. This tool requires the system to be initialized with self-replication capabilities.";
+             return "[error] execute_implementation_plan: AI Assistant class not available. This tool requires the system to be initialized with self-replication capabilities.";
         }
 
         const planPath = path.resolve(this.manifestManager.workingDir, plan_file);
@@ -163,7 +163,7 @@ export class StructuredDevHandlers {
         if (result.success) {
             return `Execution completed successfully. ${result.message}`;
         } else {
-            return `Execution failed: ${result.message}`;
+            return `[error] execute_implementation_plan: ${result.message}`;
         }
     }
 }

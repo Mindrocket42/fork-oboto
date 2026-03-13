@@ -14,6 +14,7 @@ import { SecretsManager } from './server/secrets-manager.mjs';
 import { WorkspaceContentServer } from './server/workspace-content-server.mjs';
 import { runMigrations } from './lib/migrate-config-dirs.mjs';
 import { VmSandboxError } from './lib/vm-sandbox-error.mjs';
+import { cleanupOverflowFiles } from './execution/output-presenter.mjs';
 
 let _globalEventBus = null;
 
@@ -34,6 +35,9 @@ async function main() {
         
         // Migrate legacy config directories (.ai-man → .oboto, ~/.oboto-service → ~/.oboto)
         runMigrations(workingDir);
+
+        // Clean up stale overflow temp files from previous sessions
+        cleanupOverflowFiles();
 
         // Load secrets early so vault values override .env before config is consumed
         const secretsManager = new SecretsManager();
@@ -125,6 +129,22 @@ async function main() {
 
         // Wire checkpoint manager into assistant's service registry
         assistant._services.register('taskCheckpointManager', taskCheckpointManager);
+
+        // Install npm dependencies for skills that have a package.json
+        // (e.g. git-submodule skills like alephnet-node)
+        if (assistant.toolExecutor?.skillsManager) {
+            try {
+                const depResults = await assistant.toolExecutor.skillsManager.installSkillDependencies();
+                if (depResults.installed.length > 0) {
+                    consoleStyler.log('system', `Installed dependencies for ${depResults.installed.length} skill(s): ${depResults.installed.join(', ')}`);
+                }
+                if (depResults.failed.length > 0) {
+                    consoleStyler.log('warning', `Failed to install dependencies for ${depResults.failed.length} skill(s): ${depResults.failed.join(', ')}`);
+                }
+            } catch (err) {
+                consoleStyler.log('warning', `Skill dependency installation failed: ${err.message}`);
+            }
+        }
 
         // Load custom tools before starting
         await assistant.initializeCustomTools();

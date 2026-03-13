@@ -128,17 +128,19 @@ importers:
         version: 29.4.6(@babel/core@7.29.0)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.0))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.2.3))(typescript@5.9.3)
     optionalDependencies:
       '@bubblelab/bubble-core':
-        specifier: '*'
-        version: 0.1.170(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))
+        specifier: ^0.1.229
+        version: 0.1.229(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))
       '@bubblelab/bubble-runtime':
-        specifier: '*'
-        version: 0.1.170(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))
+        specifier: ^0.1.229
+        version: 0.1.229(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))
       '@bubblelab/shared-schemas':
-        specifier: '*'
-        version: 0.1.170(hono@4.11.9)
+        specifier: ^0.1.229
+        version: 0.1.229(hono@4.11.9)
       '@bubblelab/ts-scope-manager':
-        specifier: '*'
-        version: 0.1.169(typescript@5.9.3)
+        specifier: ^0.1.229
+        version: 0.1.229(typescript@5.9.3)
+
+  plugins/alephnet: {}
 
   plugins/browser:
     dependencies:
@@ -849,17 +851,17 @@ packages:
       openai: ^4.62.1
       zod: ^3.23.8
 
-  '@bubblelab/bubble-core@0.1.170':
-    resolution: {integrity: sha512-F7ekZu5HhTNkMp2dqVFlYvkkurmrMREqagS1p341hqhq1odSGdrrAVu3n5vO7GXPt4iSY88LIwxmaKhENFyX1A==}
+  '@bubblelab/bubble-core@0.1.229':
+    resolution: {integrity: sha512-mvAmrVBzm5RownvQhHlouDhd2zhHpMD3njvQstuLokfNy9bXdLxajAt8/A6rMtL5Hx7ddJ2SGHvaGEtJPXckAA==}
 
-  '@bubblelab/bubble-runtime@0.1.170':
-    resolution: {integrity: sha512-3IytCaV93XgOwAmXG2fWyhWvfUAq4ve6brc+2EM4G5dyHOMEF5yHaEfGmt/h9UM2ed+ra1YzLbV8u89x9muGKA==}
+  '@bubblelab/bubble-runtime@0.1.229':
+    resolution: {integrity: sha512-WO/18i/+fUUcBkfkWgfTzarSslARXPBsgY9kmJTj5bIU/mqEX+ECTzgT09Z7neNgU9elTIzUnwCce1mNaMJPZg==}
 
-  '@bubblelab/shared-schemas@0.1.170':
-    resolution: {integrity: sha512-9v0OjHvU5OiOVBU9Ap7T94qxiOItGjdpm3ICwn4X1YG/yTKn6wjNbY+R0VZvIlXh3fTO8c7kJ4ZgCalgz+oeuw==}
+  '@bubblelab/shared-schemas@0.1.229':
+    resolution: {integrity: sha512-/uuk0wg4hPISYdaap6HENfPHG8zgbu9gMjRryHYXuZTzpf0qhmHiI8h47w6+qongeWwpzqtUSXufk3nlcLgH+Q==}
 
-  '@bubblelab/ts-scope-manager@0.1.169':
-    resolution: {integrity: sha512-K+G56ot0dzWwf582N5CYU1Fw4NF2PKEgNENX0SZ4ePrAR1aq0J8z53C4dTewW0y8Jk7SPlSIlsQdMZm3Um96HA==}
+  '@bubblelab/ts-scope-manager@0.1.229':
+    resolution: {integrity: sha512-+Hhi+PX3M0euYgjuS2J9qkSdkPE+X70yh+hkj+1dWCy/tSmqWZzQIHEvtSh/To2SKm1VLIBSen+Pj3unAXz7Yg==}
     peerDependencies:
       typescript: '>=4.8.4 <5.9.0'
 
@@ -2216,6 +2218,81 @@ packages:
       monaco-editor: '>= 0.25.0 < 1'
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@napi-rs/canvas-android-arm64@0.1.96':
+    resolution: {integrity: sha512-ew1sPrN3dGdZ3L4FoohPfnjq0f9/Jk7o+wP7HkQZokcXgIUD6FIyICEWGhMYzv53j63wUcPvZeAwgewX58/egg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [android]
+
+  '@napi-rs/canvas-darwin-arm64@0.1.96':
+    resolution: {integrity: sha512-Q/wOXZ5PzTqpdmA5eUOcegCf4Go/zz3aZ5DlzSeDpOjFmfwMKh8EzLAoweQ+mJVagcHQyzoJhaTEnrO68TNyNg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@napi-rs/canvas-darwin-x64@0.1.96':
+    resolution: {integrity: sha512-UrXiQz28tQEvGM1qvyptewOAfmUrrd5+wvi6Rzjj2VprZI8iZ2KIvBD2lTTG1bVF95AbeDeG7PJA0D9sLKaOFA==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@napi-rs/canvas-linux-arm-gnueabihf@0.1.96':
+    resolution: {integrity: sha512-I90ODxweD8aEP6XKU/NU+biso95MwCtQ2F46dUvhec1HesFi0tq/tAJkYic/1aBSiO/1kGKmSeD1B0duOHhEHQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [linux]
+
+  '@napi-rs/canvas-linux-arm64-gnu@0.1.96':
+    resolution: {integrity: sha512-Dx/0+RFV++w3PcRy+4xNXkghhXjA5d0Mw1bs95emn5Llinp1vihMaA6WJt3oYv2LAHc36+gnrhIBsPhUyI2SGw==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@napi-rs/canvas-linux-arm64-musl@0.1.96':
+    resolution: {integrity: sha512-UvOi7fii3IE2KDfEfhh8m+LpzSRvhGK7o1eho99M2M0HTik11k3GX+2qgVx9EtujN3/bhFFS1kSO3+vPMaJ0Mg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@napi-rs/canvas-linux-riscv64-gnu@0.1.96':
+    resolution: {integrity: sha512-MBSukhGCQ5nRtf9NbFYWOU080yqkZU1PbuH4o1ROvB4CbPl12fchDR35tU83Wz8gWIM9JTn99lBn9DenPIv7Ig==}
+    engines: {node: '>= 10'}
+    cpu: [riscv64]
+    os: [linux]
+    libc: [glibc]
+
+  '@napi-rs/canvas-linux-x64-gnu@0.1.96':
+    resolution: {integrity: sha512-I/ccu2SstyKiV3HIeVzyBIWfrJo8cN7+MSQZPnabewWV6hfJ2nY7Df2WqOHmobBRUw84uGR6zfQHsUEio/m5Vg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@napi-rs/canvas-linux-x64-musl@0.1.96':
+    resolution: {integrity: sha512-H3uov7qnTl73GDT4h52lAqpJPsl1tIUyNPWJyhQ6gHakohNqqRq3uf80+NEpzcytKGEOENP1wX3yGwZxhjiWEQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@napi-rs/canvas-win32-arm64-msvc@0.1.96':
+    resolution: {integrity: sha512-ATp6Y+djOjYtkfV/VRH7CZ8I1MEtkUQBmKUbuWw5zWEHHqfL0cEcInE4Cxgx7zkNAhEdBbnH8HMVrqNp+/gwxA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@napi-rs/canvas-win32-x64-msvc@0.1.96':
+    resolution: {integrity: sha512-UYGdTltVd+Z8mcIuoqGmAXXUvwH5CLf2M6mIB5B0/JmX5J041jETjqtSYl7gN+aj3k1by/SG6sS0hAwCqyK7zw==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
+  '@napi-rs/canvas@0.1.96':
+    resolution: {integrity: sha512-6NNmNxvoJKeucVjxaaRUt3La2i5jShgiAbaY3G/72s1Vp3U06XPrAIxkAjBxpDcamEn/t+WJ4OOlGmvILo4/Ew==}
+    engines: {node: '>= 10'}
 
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
@@ -4185,11 +4262,6 @@ packages:
   chart.js@4.5.1:
     resolution: {integrity: sha512-GIjfiT9dbmHRiYi6Nl2yFCq7kkwdkp1W/lp2J99rX0yo9tgJGn3lKQATztIjb5tVtevcBtIdICNWqlq5+E8/Pw==}
     engines: {pnpm: '>=8'}
-
-  chartjs-node-canvas@5.0.0:
-    resolution: {integrity: sha512-+Lc5phRWjb+UxAIiQpKgvOaG6Mw276YQx2jl2BrxoUtI3A4RYTZuGM5Dq+s4ReYmCY42WEPSR6viF3lDSTxpvw==}
-    peerDependencies:
-      chart.js: ^4.4.8
 
   cheerio-select@2.1.0:
     resolution: {integrity: sha512-9v9kG0LvzrlcungtnJtpGNxY+fzECQKhK4EGJX2vByejiMX84MFNQw4UxPJl3bFbTMw+Dfs37XaIkCwTZfLh4g==}
@@ -6669,6 +6741,7 @@ packages:
   prebuild-install@7.1.3:
     resolution: {integrity: sha512-8Mf2cbV7x1cXPUILADGI3wuhfqWvtiLA1iclTDbFRZkgRQS0NqsPZphna9V+HyTEadheuPmjaJMsbzKQFOzLug==}
     engines: {node: '>=10'}
+    deprecated: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
     hasBin: true
 
   prelude-ls@1.2.1:
@@ -8700,11 +8773,11 @@ snapshots:
       - utf-8-validate
     optional: true
 
-  '@bubblelab/bubble-core@0.1.170(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))':
+  '@bubblelab/bubble-core@0.1.229(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))':
     dependencies:
       '@aws-sdk/client-s3': 3.991.0
       '@aws-sdk/s3-request-presigner': 3.991.0
-      '@bubblelab/shared-schemas': 0.1.170(hono@4.11.9)
+      '@bubblelab/shared-schemas': 0.1.229(hono@4.11.9)
       '@google/generative-ai': 0.24.1
       '@langchain/anthropic': 0.3.34(@langchain/core@0.3.80(openai@5.12.2(ws@8.19.0)(zod@3.25.76)))(zod@3.25.76)
       '@langchain/community': 0.3.59(1c2213771ae488225e3a943416eaa127)
@@ -8713,11 +8786,11 @@ snapshots:
       '@langchain/langgraph': 0.3.12(@langchain/core@0.3.80(openai@5.12.2(ws@8.19.0)(zod@3.25.76)))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod-to-json-schema@3.25.1(zod@3.25.76))
       '@langchain/openai': 0.6.17(@langchain/core@0.3.80(openai@5.12.2(ws@8.19.0)(zod@3.25.76)))(ws@8.19.0)
       '@mendable/firecrawl-js': 4.13.0
+      '@napi-rs/canvas': 0.1.96
       '@sendsafely/sendsafely': 3.0.1(canvas@3.2.1)
       '@types/pg': 8.16.0
       '@typescript-eslint/typescript-estree': 8.46.0(typescript@5.9.3)
       chart.js: 4.5.1
-      chartjs-node-canvas: 5.0.0(chart.js@4.5.1)
       pg: 8.18.0
       puppeteer-core: 24.37.3
       resend: 4.8.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -8881,11 +8954,11 @@ snapshots:
       - zod-to-json-schema
     optional: true
 
-  '@bubblelab/bubble-runtime@0.1.170(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))':
+  '@bubblelab/bubble-runtime@0.1.229(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))':
     dependencies:
-      '@bubblelab/bubble-core': 0.1.170(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))
-      '@bubblelab/shared-schemas': 0.1.170(hono@4.11.9)
-      '@bubblelab/ts-scope-manager': 0.1.169(typescript@5.9.3)
+      '@bubblelab/bubble-core': 0.1.229(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.9)(@browserbasehq/sdk@2.6.0(encoding@0.1.13))(@browserbasehq/stagehand@1.14.0(@playwright/test@1.58.2)(deepmerge@4.3.1)(dotenv@17.3.1)(encoding@0.1.13)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.7.7)(@mlc-ai/web-llm@0.2.81)(@smithy/util-utf8@2.3.0)(axios@1.13.5)(canvas@3.2.1)(cheerio@1.2.0)(encoding@0.1.13)(fast-xml-parser@5.3.4)(google-auth-library@10.5.0)(handlebars@4.7.8)(hono@4.11.9)(html-to-text@9.0.5)(ibm-cloud-sdk-core@5.4.6)(ignore@5.3.2)(jsdom@26.1.0(canvas@3.2.1))(jsonwebtoken@9.0.3)(mammoth@1.11.0)(openai@5.12.2(ws@8.19.0)(zod@3.25.76))(pdf-parse@1.1.4)(playwright@1.58.2)(puppeteer@24.37.3(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(weaviate-client@3.11.0(encoding@0.1.13))(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@3.25.76))
+      '@bubblelab/shared-schemas': 0.1.229(hono@4.11.9)
+      '@bubblelab/ts-scope-manager': 0.1.229(typescript@5.9.3)
       '@typescript-eslint/typescript-estree': 8.43.0(typescript@5.9.3)
       patch-package: 8.0.1
       typescript: 5.9.3
@@ -9048,7 +9121,7 @@ snapshots:
       - zod-to-json-schema
     optional: true
 
-  '@bubblelab/shared-schemas@0.1.170(hono@4.11.9)':
+  '@bubblelab/shared-schemas@0.1.229(hono@4.11.9)':
     dependencies:
       '@hono/zod-openapi': 0.18.3(hono@4.11.9)(zod@3.25.76)
       zod: 3.25.76
@@ -9056,7 +9129,7 @@ snapshots:
       - hono
     optional: true
 
-  '@bubblelab/ts-scope-manager@0.1.169(typescript@5.9.3)':
+  '@bubblelab/ts-scope-manager@0.1.229(typescript@5.9.3)':
     dependencies:
       '@typescript-eslint/scope-manager': 8.43.0
       typescript: 5.9.3
@@ -10150,6 +10223,54 @@ snapshots:
       monaco-editor: 0.55.1
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
+
+  '@napi-rs/canvas-android-arm64@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-darwin-arm64@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-darwin-x64@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-linux-arm-gnueabihf@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-linux-arm64-gnu@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-linux-arm64-musl@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-linux-riscv64-gnu@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-linux-x64-gnu@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-linux-x64-musl@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-win32-arm64-msvc@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas-win32-x64-msvc@0.1.96':
+    optional: true
+
+  '@napi-rs/canvas@0.1.96':
+    optionalDependencies:
+      '@napi-rs/canvas-android-arm64': 0.1.96
+      '@napi-rs/canvas-darwin-arm64': 0.1.96
+      '@napi-rs/canvas-darwin-x64': 0.1.96
+      '@napi-rs/canvas-linux-arm-gnueabihf': 0.1.96
+      '@napi-rs/canvas-linux-arm64-gnu': 0.1.96
+      '@napi-rs/canvas-linux-arm64-musl': 0.1.96
+      '@napi-rs/canvas-linux-riscv64-gnu': 0.1.96
+      '@napi-rs/canvas-linux-x64-gnu': 0.1.96
+      '@napi-rs/canvas-linux-x64-musl': 0.1.96
+      '@napi-rs/canvas-win32-arm64-msvc': 0.1.96
+      '@napi-rs/canvas-win32-x64-msvc': 0.1.96
+    optional: true
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
@@ -11704,8 +11825,8 @@ snapshots:
 
   '@typescript-eslint/project-service@8.43.0(typescript@5.9.3)':
     dependencies:
-      '@typescript-eslint/tsconfig-utils': 8.43.0(typescript@5.9.3)
-      '@typescript-eslint/types': 8.43.0
+      '@typescript-eslint/tsconfig-utils': 8.56.0(typescript@5.9.3)
+      '@typescript-eslint/types': 8.56.0
       debug: 4.4.3
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -11714,8 +11835,8 @@ snapshots:
 
   '@typescript-eslint/project-service@8.46.0(typescript@5.9.3)':
     dependencies:
-      '@typescript-eslint/tsconfig-utils': 8.46.0(typescript@5.9.3)
-      '@typescript-eslint/types': 8.46.0
+      '@typescript-eslint/tsconfig-utils': 8.56.0(typescript@5.9.3)
+      '@typescript-eslint/types': 8.56.0
       debug: 4.4.3
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -12346,13 +12467,6 @@ snapshots:
   chart.js@4.5.1:
     dependencies:
       '@kurkle/color': 0.3.4
-    optional: true
-
-  chartjs-node-canvas@5.0.0(chart.js@4.5.1):
-    dependencies:
-      canvas: 3.2.1
-      chart.js: 4.5.1
-      tslib: 2.8.1
     optional: true
 
   cheerio-select@2.1.0:

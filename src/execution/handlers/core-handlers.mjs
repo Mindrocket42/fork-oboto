@@ -14,7 +14,7 @@ export class CoreHandlers {
     // Read full conversation history
     async readConversationHistory(args) {
         if (!this.historyManager) {
-            return "Error: History manager not available.";
+            return "[error] read_conversation_history: History manager not available.";
         }
         
         const { limit = 50, offset = 0 } = args;
@@ -40,7 +40,7 @@ export class CoreHandlers {
     // Promote memory to global store
     async promoteMemory(args) {
         if (!this.memoryAdapter || typeof this.memoryAdapter.promoteToGlobal !== 'function') {
-            return "Error: Global Holographic Memory not available.";
+            return "[error] promote_memory: Global Holographic Memory not available.";
         }
 
         const { text, category, importance } = args;
@@ -50,14 +50,14 @@ export class CoreHandlers {
             await this.memoryAdapter.promoteToGlobal(text, metadata);
             return `✓ Memory promoted to Global Holographic Field: "${text.substring(0, 50)}..."`;
         } catch (error) {
-            return `Error promoting memory: ${error.message}`;
+            return `[error] promote_memory: ${error.message}`;
         }
     }
 
     // Query global memory
     async queryGlobalMemory(args) {
         if (!this.memoryAdapter || typeof this.memoryAdapter.queryGlobal !== 'function') {
-            return "Error: Global Holographic Memory not available.";
+            return "[error] query_global_memory: Global Holographic Memory not available.";
         }
 
         const { query, limit } = args;
@@ -69,7 +69,7 @@ export class CoreHandlers {
             }
             return JSON.stringify(results, null, 2);
         } catch (error) {
-            return `Error querying global memory: ${error.message}`;
+            return `[error] query_global_memory: ${error.message}`;
         }
     }
 
@@ -114,7 +114,7 @@ export class CoreHandlers {
 
         const func = funcToCall === 'default' ? module.default : module[funcToCall];
         if (typeof func !== 'function') {
-            throw new Error(`'${funcToCall}' is not a function in package '${packageName}'.`);
+            throw new Error(`[error] execute_npm_function: '${funcToCall}' is not a function in package '${packageName}'. Check available exports.`);
         }
 
         const toolResult = await func(...funcArgs);
@@ -227,14 +227,14 @@ export class CoreHandlers {
     // Report from child conversation to parent conversation
     async reportToParent(args) {
         if (!this.assistant || !this.assistant.conversationManager) {
-            return "Error: Conversation manager not available.";
+            return "[error] report_to_parent: Conversation manager not available.";
         }
 
         const { summary, status = 'completed', key_findings = [] } = args;
 
         // Check if we're in the default conversation (can't report to self)
         if (this.assistant.conversationManager.isDefaultConversation()) {
-            return "Error: Cannot report to parent from the main 'chat' conversation. This tool is for use in child conversations only.";
+            return "[error] report_to_parent: cannot report from the main 'chat' conversation. This tool is for use in child conversations only.";
         }
 
         const metadata = {
@@ -248,7 +248,7 @@ export class CoreHandlers {
         if (result.reported) {
             return `✓ Report delivered to parent conversation.\n\nSummary: ${summary}\nStatus: ${status}${key_findings.length > 0 ? '\nKey Findings:\n' + key_findings.map(f => `  • ${f}`).join('\n') : ''}`;
         } else {
-            return `Error: ${result.error}`;
+            return `[error] report_to_parent: ${result.error}`;
         }
     }
 

@@ -1,0 +1,30 @@
+{
+  "name": "alephnet",
+  "version": "1.0.0",
+  "description": "AlephNet social network for AI agents — semantic computing, messaging, coherence verification, and token economics",
+  "main": "index.mjs",
+  "capabilities": {
+    "tools": true,
+    "ws": true,
+    "events": true,
+    "settings": true
+  },
+  "ui": {
+    "tabs": [
+      {
+        "id": "alephnet",
+        "label": "AlephNet",
+        "icon": "🌐",
+        "component": "components/AlephNetTab.jsx"
+      }
+    ],
+    "sidebarSections": [
+      {
+        "id": "alephnet-status",
+        "label": "AlephNet",
+        "component": "components/NetworkStatus.jsx"
+      }
+    ]
+  },
+  "trait": "Use alephnet_think for semantic analysis of text, alephnet_remember/alephnet_recall for persistent semantic memory, alephnet_chat_send for messaging friends, alephnet_friends_list for social connections, alephnet_wallet_balance for token economics, alephnet_coherence_submit_claim for collaborative truth verification, and alephnet_connect to join the distributed mesh network."
+}

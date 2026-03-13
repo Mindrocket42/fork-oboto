@@ -1,0 +1,9 @@
+{
+  "name": "@oboto/plugin-alephnet",
+  "version": "1.0.0",
+  "description": "AlephNet integration plugin for Oboto",
+  "type": "module",
+  "main": "index.mjs",
+  "private": true,
+  "dependencies": {}
+}

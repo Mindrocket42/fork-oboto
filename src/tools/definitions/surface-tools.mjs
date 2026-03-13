@@ -211,5 +211,43 @@ Example custom layout:
                 required: ["surface_id", "component_name", "cell_id"]
             }
         }
+    },
+    {
+        type: "function",
+        function: {
+            name: "list_surface_revisions",
+            description: "List all available revisions (snapshots) for a surface. Each mutation (component add/update/remove, layout change) automatically creates a revision. Use this to see what versions are available before reverting.",
+            parameters: {
+                type: "object",
+                properties: {
+                    surface_id: {
+                        type: "string",
+                        description: "The surface ID to list revisions for"
+                    }
+                },
+                required: ["surface_id"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "revert_surface",
+            description: "Revert a surface to a previous revision. This restores the surface metadata AND all component source files to exactly the state they were in at that revision. The current state is automatically saved as a new revision before reverting, so reverting is itself undoable.",
+            parameters: {
+                type: "object",
+                properties: {
+                    surface_id: {
+                        type: "string",
+                        description: "The surface ID to revert"
+                    },
+                    revision: {
+                        type: "number",
+                        description: "The revision number to revert to (from list_surface_revisions)"
+                    }
+                },
+                required: ["surface_id", "revision"]
+            }
+        }
     }
 ];

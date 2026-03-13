@@ -1,9 +1,12 @@
 // Tool execution logic
 // This module contains all the built-in tool schemas used by the AI
 // REFACTORED: Tool handlers are now distributed in handlers/*.mjs
+// ENHANCED: Output presentation layer (binary guard, overflow, metadata footer)
 
 import { consoleStyler } from '../ui/console-styler.mjs';
 import { emitToolStatus } from '../core/status-reporter.mjs';
+import { presentToolOutput } from './output-presenter.mjs';
+import { CommandRouter } from './command-router.mjs';
 import { FileTools } from '../tools/file-tools.mjs';
 import { DesktopAutomationTools } from '../tools/desktop-automation-tools.mjs';
 import { ManifestManager } from '../structured-dev/manifest-manager.mjs';
@@ -31,6 +34,46 @@ import { SurfaceHandlers } from './handlers/surface-handlers.mjs';
 import { dryRunGuard } from './dry-run-guard.mjs';
 import { McpHandlers } from './handlers/mcp-handlers.mjs';
 import { TOOLS } from '../tools/tool-definitions.mjs';
+
+// Tools whose output should NOT be processed by the presentation layer.
+// These return structured JSON or very short confirmations that don't benefit
+// from binary guards / overflow / metadata footers.
+const PRESENTATION_SKIP_TOOLS = new Set([
+    // CLI router handles its own presentation layer (binary guard, overflow, footer)
+    'run',
+    // Shell tools handle their own presentation (stderr, footer, overflow, navigational errors)
+    'run_command',
+    // Write operations return short confirmations — no need to truncate
+    'write_file',
+    'write_many_files',
+    'edit_file',
+    // These return structured JSON that callers parse
+    'read_many_files',
+    'check_task_status',
+    'list_background_tasks',
+    'get_task_output',
+    'list_recurring_tasks',
+    'manage_recurring_task',
+    // Surface tools return structured JSON for UI rendering
+    'create_surface',
+    'update_surface_component',
+    'remove_surface_component',
+    'list_surfaces',
+    'delete_surface',
+    'open_surface',
+    'capture_surface',
+    'configure_surface_layout',
+    'place_component_in_cell',
+    'list_surface_revisions',
+    'revert_surface',
+    // Recursive AI calls have their own formatting
+    'call_ai_assistant',
+    'report_to_parent',
+    // Blocking questions — not regular tool output
+    'ask_blocking_question',
+    // Desktop tools return structured data or images
+    'screen_capture',
+]);
 
 const TOOL_TIMEOUTS = {
     read_file: 10_000,
@@ -93,6 +136,13 @@ export class ToolExecutor {
         this.enhancementGenerator = new EnhancementGenerator(workspaceRoot, this.aiAssistantClass);
         this.codeValidator = new CodeValidator(workspaceRoot);
         this.planExecutor = new PlanExecutor(this.manifestManager, this.aiAssistantClass);
+
+        // Initialize Command Router (unified CLI)
+        this.commandRouter = new CommandRouter({
+            fileTools: this.fileTools,
+            shellTools: this.shellTools,
+            toolExecutor: this,
+        });
 
         // Initialize Surface Manager
         this.surfaceManager = new SurfaceManager(workspaceRoot);
@@ -283,6 +333,17 @@ export class ToolExecutor {
         // Blocking Question Tool (Agent Loop)
         this.registerTool('ask_blocking_question', this.asyncTaskHandlers.askBlockingQuestion.bind(this.asyncTaskHandlers));
 
+        // Unified CLI Tool (with dry-run guard)
+        this.registerTool('run', args => {
+            if (this.dryRun) {
+                return dryRunGuard(this.dryRun, this._plannedChanges, {
+                    type: 'command',
+                    command: args.command,
+                }, () => {});
+            }
+            return this.commandRouter.execute(args.command);
+        });
+
         // File & Shell Tools
         this.registerTool('read_file', this.fileTools.readFile.bind(this.fileTools));
         this.registerTool('write_file', this.writeFileWithValidation.bind(this));
@@ -317,6 +378,8 @@ export class ToolExecutor {
         this.registerTool('capture_surface', this.surfaceHandlers.captureSurface.bind(this.surfaceHandlers));
         this.registerTool('configure_surface_layout', this.surfaceHandlers.configureSurfaceLayout.bind(this.surfaceHandlers));
         this.registerTool('place_component_in_cell', this.surfaceHandlers.placeComponentInCell.bind(this.surfaceHandlers));
+        this.registerTool('list_surface_revisions', this.surfaceHandlers.listSurfaceRevisions.bind(this.surfaceHandlers));
+        this.registerTool('revert_surface', this.surfaceHandlers.revertSurface.bind(this.surfaceHandlers));
     }
 
     setDryRun(enabled) {
@@ -339,6 +402,21 @@ export class ToolExecutor {
         for (const tool of TOOLS) {
             const name = tool.function?.name;
             if (name) toolMap.set(name, tool);
+        }
+
+        // Dynamically update the `run` tool description with the actual
+        // registered command list from CommandRouter. This ensures the LLM
+        // sees the real commands available at runtime (including any added
+        // after static definition time).
+        if (this.commandRouter && toolMap.has('run')) {
+            const runTool = toolMap.get('run');
+            toolMap.set('run', {
+                ...runTool,
+                function: {
+                    ...runTool.function,
+                    description: this.commandRouter.generateToolDescription(),
+                },
+            });
         }
 
         // Add Custom Tools
@@ -499,6 +577,7 @@ export class ToolExecutor {
     async _executeToolInner(toolCall, options = {}) {
         const functionName = toolCall.function.name;
         let toolResultText = '';
+        const startTime = Date.now(); // ← Timing for presentation layer
 
         try {
             consoleStyler.log('tools', `🔧 Starting ${functionName}...`);
@@ -596,10 +675,24 @@ export class ToolExecutor {
                 }
                 
                 if (!serverFound) {
-                    throw new Error(`Unknown tool: ${functionName} (MCP server matching prefix not found)`);
+                    throw new Error(`[error] unknown tool: ${functionName}. MCP server matching prefix not found. Use mcp_list_servers to see available servers.`);
                 }
             } else {
-                throw new Error(`Unknown tool: ${functionName}`);
+                throw new Error(`[error] unknown tool: ${functionName}. Use list_custom_tools or list_skills to find available tools.`);
+            }
+
+            const durationMs = Date.now() - startTime;
+
+            // ── Presentation Layer (Layer 2) ──
+            // Process raw tool output through binary guard, overflow truncation,
+            // and metadata footer before returning to the LLM.
+            const skipPresentation = PRESENTATION_SKIP_TOOLS.has(functionName);
+            if (!skipPresentation && typeof toolResultText === 'string') {
+                toolResultText = presentToolOutput(toolResultText, {
+                    toolName: functionName,
+                    durationMs,
+                    filePath: args.path || args.file || undefined,
+                });
             }
 
             // Emit structured tool-call-end event so the UI can update ToolCall
@@ -616,16 +709,21 @@ export class ToolExecutor {
             };
 
         } catch (error) {
+            const durationMs = Date.now() - startTime;
             consoleStyler.log('error', `Tool Error: ${error.message}`);
+
+            // Format error with presentation layer metadata
+            const errorContent = `${error.message}\n[exit:1 | ${durationMs}ms]`;
+
             // Emit tool-call-end with error so the UI can show the failure
             if (this.eventBus) {
-                this.eventBus.emitTyped('server:tool-call-end', { toolName: functionName, result: `Error: ${error.message}` });
+                this.eventBus.emitTyped('server:tool-call-end', { toolName: functionName, result: errorContent });
             }
             return {
                 role: 'tool',
                 tool_call_id: toolCall.id,
                 name: functionName,
-                content: `Error: ${error.message}`,
+                content: errorContent,
             };
         }
     }
@@ -721,7 +819,7 @@ export class ToolExecutor {
         const { path, content } = args;
         const writeResult = await this.fileTools.writeFile(args);
         
-        if (writeResult.startsWith('Error:')) {
+        if (writeResult.startsWith('[error]') || writeResult.startsWith('Error:')) {
             return writeResult;
         }
 

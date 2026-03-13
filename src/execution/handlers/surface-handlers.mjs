@@ -15,7 +15,7 @@ export class SurfaceHandlers {
             
             return `Surface created successfully.\nID: ${surface.id}\nName: ${surface.name}\n\nThe surface is now open and ready for components.`;
         } catch (error) {
-            return `Error creating surface: ${error.message}`;
+            return `[error] create_surface: ${error.message}`;
         }
     }
 
@@ -39,7 +39,7 @@ export class SurfaceHandlers {
 
             return `Component '${component_name}' updated on surface '${surface.name}'.`;
         } catch (error) {
-            return `Error updating component: ${error.message}`;
+            return `[error] update_surface_component: ${error.message}. Use: list_surfaces to verify surface_id.`;
         }
     }
 
@@ -49,7 +49,7 @@ export class SurfaceHandlers {
             const success = await this.surfaceManager.removeComponent(surface_id, component_name);
             
             if (!success) {
-                return `Component '${component_name}' not found on surface '${surface_id}'.`;
+                return `[error] remove_surface_component: component '${component_name}' not found on surface '${surface_id}'. Use: open_surface to inspect components.`;
             }
 
             if (this.eventBus) {
@@ -61,7 +61,7 @@ export class SurfaceHandlers {
 
             return `Component '${component_name}' removed from surface.`;
         } catch (error) {
-            return `Error removing component: ${error.message}`;
+            return `[error] remove_surface_component: ${error.message}`;
         }
     }
 
@@ -76,7 +76,7 @@ export class SurfaceHandlers {
             const list = surfaces.map(s => `- ${s.name} (ID: ${s.id}) [${s.pinned ? 'Pinned' : 'Unpinned'}]`).join('\n');
             return `Surfaces:\n${list}`;
         } catch (error) {
-            return `Error listing surfaces: ${error.message}`;
+            return `[error] list_surfaces: ${error.message}`;
         }
     }
 
@@ -86,7 +86,7 @@ export class SurfaceHandlers {
             const success = await this.surfaceManager.deleteSurface(surface_id);
             
             if (!success) {
-                return `Surface '${surface_id}' not found.`;
+                return `[error] delete_surface: surface '${surface_id}' not found. Use: list_surfaces to see available surfaces.`;
             }
 
             if (this.eventBus) {
@@ -95,7 +95,7 @@ export class SurfaceHandlers {
 
             return `Surface '${surface_id}' deleted successfully.`;
         } catch (error) {
-            return `Error deleting surface: ${error.message}`;
+            return `[error] delete_surface: ${error.message}`;
         }
     }
 
@@ -105,7 +105,7 @@ export class SurfaceHandlers {
             const surface = await this.surfaceManager.getSurface(surface_id);
             
             if (!surface) {
-                return `Surface '${surface_id}' not found.`;
+                return `[error] open_surface: surface '${surface_id}' not found. Use: list_surfaces to see available surfaces.`;
             }
 
             if (this.eventBus) {
@@ -114,7 +114,7 @@ export class SurfaceHandlers {
 
             return `Surface '${surface.name}' (ID: ${surface_id}) opened successfully.`;
         } catch (error) {
-            return `Error opening surface: ${error.message}`;
+            return `[error] open_surface: ${error.message}`;
         }
     }
 
@@ -205,17 +205,17 @@ export class SurfaceHandlers {
             if (preset) {
                 resolvedLayout = SurfaceHandlers.LAYOUT_PRESETS[preset];
                 if (!resolvedLayout) {
-                    return `Unknown preset '${preset}'. Available: ${Object.keys(SurfaceHandlers.LAYOUT_PRESETS).join(', ')}`;
+                    return `[error] configure_surface_layout: unknown preset '${preset}'. Available: ${Object.keys(SurfaceHandlers.LAYOUT_PRESETS).join(', ')}`;
                 }
                 // Deep clone to avoid mutation
                 resolvedLayout = JSON.parse(JSON.stringify(resolvedLayout));
             } else if (layout) {
                 if (!layout.type || layout.type !== 'flex-grid') {
-                    return "Custom layout must have type: 'flex-grid' and a 'rows' array.";
+                    return "[error] configure_surface_layout: custom layout must have type: 'flex-grid' and a 'rows' array.";
                 }
                 resolvedLayout = layout;
             } else {
-                return "Either 'preset' or 'layout' must be provided.";
+                return "[error] configure_surface_layout: either 'preset' or 'layout' must be provided. Available presets: " + Object.keys(SurfaceHandlers.LAYOUT_PRESETS).join(', ');
             }
 
             const surface = await this.surfaceManager.updateLayout(surface_id, resolvedLayout);
@@ -234,7 +234,7 @@ export class SurfaceHandlers {
 
             return `Surface layout updated to ${preset || 'custom flex-grid'}.\nAvailable cell IDs for component placement: ${cellIds.join(', ')}`;
         } catch (error) {
-            return `Error configuring layout: ${error.message}`;
+            return `[error] configure_surface_layout: ${error.message}`;
         }
     }
 
@@ -249,7 +249,7 @@ export class SurfaceHandlers {
 
             return `Component '${component_name}' placed in cell '${cell_id}'.`;
         } catch (error) {
-            return `Error placing component: ${error.message}`;
+            return `[error] place_component_in_cell: ${error.message}. Use: configure_surface_layout to see available cell IDs.`;
         }
     }
 
@@ -259,11 +259,11 @@ export class SurfaceHandlers {
             const surface = await this.surfaceManager.getSurface(surface_id);
             
             if (!surface) {
-                return `Surface '${surface_id}' not found.`;
+                return `[error] capture_surface: surface '${surface_id}' not found. Use: list_surfaces to see available surfaces.`;
             }
 
             if (!this.eventBus) {
-                return "Event bus not available to request screenshot.";
+                return "[error] capture_surface: event bus not available to request screenshot.";
             }
 
             const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -318,6 +318,54 @@ export class SurfaceHandlers {
                 networkLogs: [],
                 error: error.message
             });
+        }
+    }
+
+    async listSurfaceRevisions(args) {
+        try {
+            const { surface_id } = args;
+            const surface = await this.surfaceManager.getSurface(surface_id);
+            if (!surface) {
+                return `[error] list_surface_revisions: surface '${surface_id}' not found. Use: list_surfaces to see available surfaces.`;
+            }
+
+            const revisions = await this.surfaceManager.listRevisions(surface_id);
+
+            if (revisions.length === 0) {
+                return `No revisions found for surface '${surface.name}'. Revisions are created automatically when components or layout are modified.`;
+            }
+
+            const lines = revisions.map(r =>
+                `  rev ${r.revision} | ${r.timestamp} | ${r.action} (${r.componentCount} components)`
+            );
+            return `Revisions for '${surface.name}' (${revisions.length} total):\n${lines.join('\n')}`;
+        } catch (error) {
+            return `[error] list_surface_revisions: ${error.message}`;
+        }
+    }
+
+    async revertSurface(args) {
+        try {
+            const { surface_id, revision } = args;
+            const surface = await this.surfaceManager.getSurface(surface_id);
+            if (!surface) {
+                return `[error] revert_surface: surface '${surface_id}' not found. Use: list_surfaces to see available surfaces.`;
+            }
+
+            const restored = await this.surfaceManager.revertToRevision(surface_id, revision);
+
+            if (this.eventBus) {
+                this.eventBus.emit('surface:reverted', {
+                    surfaceId: surface_id,
+                    revision,
+                    surface: restored
+                });
+            }
+
+            const compNames = restored.components.map(c => c.name).join(', ') || '(none)';
+            return `Surface '${restored.name}' reverted to revision ${revision}.\nRestored components: ${compNames}`;
+        } catch (error) {
+            return `[error] revert_surface: ${error.message}. Use: list_surface_revisions to see available revisions.`;
         }
     }
 }

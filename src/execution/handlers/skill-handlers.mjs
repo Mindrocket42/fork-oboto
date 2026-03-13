@@ -23,7 +23,7 @@ export class SkillHandlers {
         const skill = this.skillsManager.getSkill(skill_name);
 
         if (!skill) {
-            return `Skill '${skill_name}' not found. Use 'list_skills' to see available skills.`;
+            return `[error] read_skill: skill '${skill_name}' not found. Use: list_skills to see available skills.`;
         }
 
         return `SKILL: ${skill.name}\n\n${skill.content}`;
@@ -35,11 +35,11 @@ export class SkillHandlers {
         const skill = this.skillsManager.getSkill(skill_name);
 
         if (!skill) {
-            return `Skill '${skill_name}' not found.`;
+            return `[error] use_skill: skill '${skill_name}' not found. Use: list_skills to see available skills.`;
         }
 
         if (!this.aiAssistantClass) {
-            return "Error: AI Assistant class not available for skill execution.";
+            return "[error] use_skill: AI Assistant class not available for skill execution.";
         }
 
         consoleStyler.log('ai', `🧠 Executing Skill: ${skill_name} -> ${task}`);
@@ -69,7 +69,7 @@ STEPS:
 
         } catch (error) {
             consoleStyler.log('error', `Skill execution failed: ${error.message}`);
-            return `Error executing skill '${skill_name}': ${error.message}`;
+            return `[error] use_skill: execution of '${skill_name}' failed: ${error.message}`;
         }
     }
 
@@ -83,14 +83,14 @@ STEPS:
             return result;
         } catch (error) {
             consoleStyler.log('error', `Failed to add NPM skills: ${error.message}`);
-            return `Error adding npm skills: ${error.message}`;
+            return `[error] add_npm_skill: ${error.message}`;
         }
     }
 
     async createSkill(args) {
         const { name, content, scope } = args;
         if (!name || !content) {
-            return "Error: Both 'name' and 'content' are required to create a skill.";
+            return "[error] create_skill: both 'name' and 'content' are required. Usage: create_skill({ name, content, scope })";
         }
 
         try {
@@ -99,14 +99,14 @@ STEPS:
             return result;
         } catch (error) {
             consoleStyler.log('error', `Failed to create skill: ${error.message}`);
-            return `Error creating skill: ${error.message}`;
+            return `[error] create_skill: ${error.message}`;
         }
     }
 
     async editSkill(args) {
         const { name, content } = args;
         if (!name || !content) {
-            return "Error: Both 'name' and 'content' are required to edit a skill.";
+            return "[error] edit_skill: both 'name' and 'content' are required. Usage: edit_skill({ name, content })";
         }
 
         try {
@@ -115,14 +115,14 @@ STEPS:
             return result;
         } catch (error) {
             consoleStyler.log('error', `Failed to edit skill: ${error.message}`);
-            return `Error editing skill: ${error.message}`;
+            return `[error] edit_skill: ${error.message}. Use: list_skills to verify skill exists.`;
         }
     }
 
     async deleteSkill(args) {
         const { name } = args;
         if (!name) {
-            return "Error: 'name' is required to delete a skill.";
+            return "[error] delete_skill: 'name' is required. Usage: delete_skill({ name })";
         }
 
         try {
@@ -131,7 +131,7 @@ STEPS:
             return result;
         } catch (error) {
             consoleStyler.log('error', `Failed to delete skill: ${error.message}`);
-            return `Error deleting skill: ${error.message}`;
+            return `[error] delete_skill: ${error.message}. Use: list_skills to verify skill exists.`;
         }
     }
 }

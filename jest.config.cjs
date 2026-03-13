@@ -26,6 +26,6 @@ module.exports = {
     }]
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(chokidar|readdirp)/)'
+    'node_modules/(?!(chokidar|readdirp|uuid)/)'
   ]
 };

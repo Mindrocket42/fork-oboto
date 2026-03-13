@@ -7,11 +7,11 @@ export class McpHandlers {
         const { name, type, command, args: commandArgs, url, env, scope } = args;
 
         if (type === 'stdio') {
-            if (!command) return "Error: 'command' is required for stdio transport.";
+            if (!command) return "[error] mcp_add_server: 'command' is required for stdio transport. Usage: mcp_add_server({ name, type: 'stdio', command, args })";
         } else if (type === 'sse') {
-            if (!url) return "Error: 'url' is required for sse transport.";
+            if (!url) return "[error] mcp_add_server: 'url' is required for sse transport. Usage: mcp_add_server({ name, type: 'sse', url })";
         } else {
-            return "Error: Invalid transport type.";
+            return `[error] mcp_add_server: invalid transport type '${type}'. Valid types: stdio, sse`;
         }
 
         const config = {
@@ -36,7 +36,7 @@ export class McpHandlers {
                 return `Added configuration for MCP server '${name}' (${scope} scope), but failed to connect immediately. Check logs for details.`;
             }
         } catch (e) {
-            return `Error adding server: ${e.message}`;
+            return `[error] mcp_add_server: ${e.message}`;
         }
     }
 
@@ -47,7 +47,7 @@ export class McpHandlers {
             await this.clientManager.removeServerConfig(name, scope === 'global');
             return `Successfully removed MCP server '${name}' (${scope} scope).`;
         } catch (e) {
-            return `Error removing server: ${e.message}`;
+            return `[error] mcp_remove_server: ${e.message}. Use: mcp_list_servers to verify server name.`;
         }
     }
 
@@ -68,7 +68,7 @@ export class McpHandlers {
             
             return output;
         } catch (e) {
-            return `Error listing servers: ${e.message}`;
+            return `[error] mcp_list_servers: ${e.message}`;
         }
     }
 
@@ -78,7 +78,7 @@ export class McpHandlers {
             await this.clientManager.connectAll();
             return "Successfully refreshed MCP server configurations and connections.";
         } catch (e) {
-            return `Error refreshing servers: ${e.message}`;
+            return `[error] mcp_refresh_servers: ${e.message}`;
         }
     }
 }
