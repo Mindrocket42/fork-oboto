@@ -13,8 +13,10 @@ import {
   Check,
 } from 'lucide-react';
 import type { ProjectStatusData } from '../features/ProjectStatus';
+import type { PersonaInfo } from '../../hooks/usePersona';
 import CloudSyncIndicator from '../features/CloudSyncIndicator';
 import CloudPresenceBar from '../features/CloudPresenceBar';
+import PersonaSelector from '../features/PersonaSelector';
 
 interface StatusBarProps {
   isConnected: boolean;
@@ -30,6 +32,11 @@ interface StatusBarProps {
   currentTheme?: string;
   availableThemes?: string[];
   onThemeChange?: (theme: string) => void;
+  // Persona props
+  personas?: PersonaInfo[];
+  activePersonaId?: string | null;
+  onSwitchPersona?: (personaId: string) => void;
+  onCreatePersona?: (name: string, prompt: string) => void;
 }
 
 /** VS Code-style status bar pinned to the bottom of the window. */
@@ -47,6 +54,10 @@ const StatusBar: React.FC<StatusBarProps> = ({
   currentTheme = 'default',
   availableThemes = [],
   onThemeChange,
+  personas = [],
+  activePersonaId = null,
+  onSwitchPersona,
+  onCreatePersona,
 }) => {
   const gitBranch = projectStatus?.gitBranch;
   const projectType = projectStatus?.projectType;
@@ -253,6 +264,16 @@ const StatusBar: React.FC<StatusBarProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {/* Persona selector */}
+        {onSwitchPersona && onCreatePersona && (
+          <PersonaSelector
+            personas={personas}
+            activePersonaId={activePersonaId}
+            onSwitch={onSwitchPersona}
+            onCreate={onCreatePersona}
+          />
         )}
 
         {/* Active conversation */}

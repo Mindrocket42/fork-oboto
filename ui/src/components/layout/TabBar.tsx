@@ -12,6 +12,8 @@ export interface EditorTab {
   conversationName?: string; // conversation name for chat tabs
   pluginName?: string; // plugin name for plugin tabs
   pluginComponent?: string; // component file for plugin tabs
+  /** Parameters passed when this surface was opened via surfaceApi.openSurface() */
+  activationParams?: Record<string, unknown>;
 }
 
 interface ContextMenuState {
@@ -22,12 +24,12 @@ interface ContextMenuState {
   isMainChat: boolean;
 }
 
-interface SurfaceTabContextMenuState {
+interface NonChatContextMenuState {
   visible: boolean;
   x: number;
   y: number;
   tabId: string;
-  surfaceId: string;
+  surfaceId: string; // populated only for surface tabs
 }
 
 interface TabBarProps {
@@ -64,12 +66,12 @@ const TabBar: React.FC<TabBarProps> = ({
 }) => {
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0, tabId: '', isMainChat: false });
-  const [surfaceMenu, setSurfaceMenu] = useState<SurfaceTabContextMenuState>({ visible: false, x: 0, y: 0, tabId: '', surfaceId: '' });
+  const [nonChatMenu, setNonChatMenu] = useState<NonChatContextMenuState>({ visible: false, x: 0, y: 0, tabId: '', surfaceId: '' });
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const plusMenuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const surfaceMenuRef = useRef<HTMLDivElement>(null);
+  const nonChatMenuRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
   // Close dropdown on outside click.
@@ -121,17 +123,17 @@ const TabBar: React.FC<TabBarProps> = ({
     };
   }, [contextMenu.visible]);
 
-  // Close surface context menu on outside click or Escape
+  // Close non-chat context menu on outside click or Escape
   useEffect(() => {
-    if (!surfaceMenu.visible) return;
+    if (!nonChatMenu.visible) return;
     const handleClick = (e: MouseEvent) => {
-      if (surfaceMenuRef.current && !surfaceMenuRef.current.contains(e.target as Node)) {
-        setSurfaceMenu(prev => ({ ...prev, visible: false }));
+      if (nonChatMenuRef.current && !nonChatMenuRef.current.contains(e.target as Node)) {
+        setNonChatMenu(prev => ({ ...prev, visible: false }));
       }
     };
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setSurfaceMenu(prev => ({ ...prev, visible: false }));
+        setNonChatMenu(prev => ({ ...prev, visible: false }));
       }
     };
     document.addEventListener('mousedown', handleClick);
@@ -140,7 +142,7 @@ const TabBar: React.FC<TabBarProps> = ({
       document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [surfaceMenu.visible]);
+  }, [nonChatMenu.visible]);
 
   // Focus edit input when entering edit mode
   useEffect(() => {
@@ -243,6 +245,63 @@ const TabBar: React.FC<TabBarProps> = ({
     const convTab = conversationTabs.find(t => t.id === tabId);
     if (convTab && convTab.conversationName) {
       onDeleteConversation?.(convTab.conversationName);
+    }
+  };
+
+  // Close group actions for conversation tabs
+  const closeOtherConversations = (tabId: string) => {
+    setContextMenu(prev => ({ ...prev, visible: false }));
+    for (const t of conversationTabs) {
+      if (t.id !== tabId && t.id !== 'chat' && t.conversationName) {
+        onDeleteConversation?.(t.conversationName);
+      }
+    }
+  };
+
+  const closeConversationsToRight = (tabId: string) => {
+    setContextMenu(prev => ({ ...prev, visible: false }));
+    const idx = conversationTabs.findIndex(t => t.id === tabId);
+    if (idx < 0) return;
+    for (let i = idx + 1; i < conversationTabs.length; i++) {
+      const t = conversationTabs[i];
+      if (t.id !== 'chat' && t.conversationName) {
+        onDeleteConversation?.(t.conversationName);
+      }
+    }
+  };
+
+  const closeAllConversations = () => {
+    setContextMenu(prev => ({ ...prev, visible: false }));
+    for (const t of conversationTabs) {
+      if (t.id !== 'chat' && t.conversationName) {
+        onDeleteConversation?.(t.conversationName);
+      }
+    }
+  };
+
+  // Close group actions for non-chat tabs
+  const closeOtherNonChatTabs = (tabId: string) => {
+    setNonChatMenu(prev => ({ ...prev, visible: false }));
+    for (const t of nonChatTabs) {
+      if (t.id !== tabId) {
+        onCloseTab(t.id);
+      }
+    }
+  };
+
+  const closeNonChatTabsToRight = (tabId: string) => {
+    setNonChatMenu(prev => ({ ...prev, visible: false }));
+    const idx = nonChatTabs.findIndex(t => t.id === tabId);
+    if (idx < 0) return;
+    for (let i = idx + 1; i < nonChatTabs.length; i++) {
+      onCloseTab(nonChatTabs[i].id);
+    }
+  };
+
+  const closeAllNonChatTabs = () => {
+    setNonChatMenu(prev => ({ ...prev, visible: false }));
+    for (const t of nonChatTabs) {
+      onCloseTab(t.id);
     }
   };
 
@@ -364,17 +423,15 @@ const TabBar: React.FC<TabBarProps> = ({
               key={tab.id}
               onClick={() => onSelectTab(tab.id)}
               onContextMenu={(e) => {
-                if (tab.type === 'surface' && tab.surfaceId) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setSurfaceMenu({
-                    visible: true,
-                    x: e.clientX,
-                    y: e.clientY,
-                    tabId: tab.id,
-                    surfaceId: tab.surfaceId,
-                  });
-                }
+                e.preventDefault();
+                e.stopPropagation();
+                setNonChatMenu({
+                  visible: true,
+                  x: e.clientX,
+                  y: e.clientY,
+                  tabId: tab.id,
+                  surfaceId: (tab.type === 'surface' && tab.surfaceId) ? tab.surfaceId : '',
+                });
               }}
               className={`
                 group flex items-center gap-1.5 px-3.5 py-2 text-[11px] font-medium
@@ -527,7 +584,7 @@ const TabBar: React.FC<TabBarProps> = ({
       {contextMenu.visible && (
         <div
           ref={contextMenuRef}
-          className="fixed z-[99999] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl shadow-black/50 py-1 min-w-[140px]"
+          className="fixed z-[99999] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl shadow-black/50 py-1 min-w-[160px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
@@ -574,28 +631,95 @@ const TabBar: React.FC<TabBarProps> = ({
             <Trash2 size={12} className={contextMenu.isMainChat ? 'text-zinc-700' : 'text-zinc-400'} />
             Delete
           </button>
+
+          {/* Close group actions */}
+          {conversationTabs.length > 1 && (
+            <>
+              <div className="border-t border-zinc-700/50 my-0.5" />
+              <button
+                className={`
+                  w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left
+                  transition-colors cursor-pointer
+                  ${contextMenu.isMainChat
+                    ? 'text-zinc-600 cursor-not-allowed'
+                    : 'text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100'}
+                `}
+                onClick={() => {
+                  if (!contextMenu.isMainChat) {
+                    handleDeleteConversation(contextMenu.tabId);
+                  }
+                }}
+                disabled={contextMenu.isMainChat}
+              >
+                <X size={12} className={contextMenu.isMainChat ? 'text-zinc-700' : 'text-zinc-400'} />
+                Close
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
+                onClick={() => closeOtherConversations(contextMenu.tabId)}
+              >
+                <X size={12} className="text-zinc-400" />
+                Close Others
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
+                onClick={() => closeConversationsToRight(contextMenu.tabId)}
+              >
+                <X size={12} className="text-zinc-400" />
+                Close to the Right
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
+                onClick={() => closeAllConversations()}
+              >
+                <X size={12} className="text-zinc-400" />
+                Close All
+              </button>
+            </>
+          )}
         </div>
       )}
 
-      {/* Context menu for surface tabs */}
-      {surfaceMenu.visible && (
+      {/* Context menu for non-chat tabs (file, surface, html-preview, image, pdf, plugin) */}
+      {nonChatMenu.visible && (
         <div
-          ref={surfaceMenuRef}
+          ref={nonChatMenuRef}
           className="fixed z-[99999] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl shadow-black/50 py-1 min-w-[160px]"
           style={{
-            left: Math.min(surfaceMenu.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 180),
-            top: Math.min(surfaceMenu.y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 100),
+            left: Math.min(nonChatMenu.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 180),
+            top: Math.min(nonChatMenu.y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 100),
           }}
         >
           <button
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
             onClick={() => {
-              setSurfaceMenu(prev => ({ ...prev, visible: false }));
-              onCloseTab(surfaceMenu.tabId);
+              setNonChatMenu(prev => ({ ...prev, visible: false }));
+              onCloseTab(nonChatMenu.tabId);
             }}
           >
             <X size={12} className="text-zinc-400" />
-            Close Tab
+            Close
+          </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
+            onClick={() => closeOtherNonChatTabs(nonChatMenu.tabId)}
+          >
+            <X size={12} className="text-zinc-400" />
+            Close Others
+          </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
+            onClick={() => closeNonChatTabsToRight(nonChatMenu.tabId)}
+          >
+            <X size={12} className="text-zinc-400" />
+            Close to the Right
+          </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100"
+            onClick={() => closeAllNonChatTabs()}
+          >
+            <X size={12} className="text-zinc-400" />
+            Close All
           </button>
         </div>
       )}

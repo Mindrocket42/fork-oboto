@@ -6,6 +6,7 @@ import { callOpenAIREST, callOpenAIRESTStream, transformRequestBody } from './ad
 import { callAnthropicREST, callAnthropicRESTStream } from './adapters/anthropic.mjs';
 import { callWebLLM, setEventBusRef as setWebLLMEventBusRef } from './adapters/webllm.mjs';
 import { callCloudProxy, callCloudProxyStream, setCloudSyncRef, setEventBusRefForCloud } from './adapters/cloud.mjs';
+import { callCloudGatewayREST, callCloudGatewayRESTStream, createCloudGatewayContext } from './adapters/cloud-gateway.mjs';
 import { callAnthropicDirectREST, callAnthropicDirectRESTStream } from './adapters/anthropic-direct.mjs';
 import { callCohereREST, callCohereRESTStream } from './adapters/cohere.mjs';
 import { callAzureOpenAIREST, callAzureOpenAIRESTStream } from './adapters/azure-openai.mjs';
@@ -27,6 +28,10 @@ export {
     isRetryableError,
     getProviderLabel,
     setCloudSyncRef,
+    // Cloud Gateway (standalone adapter for Lovable AI Gateway)
+    createCloudGatewayContext,
+    callCloudGatewayREST,
+    callCloudGatewayRESTStream,
 };
 
 // Unified setEventBusRef that updates both WebLLM and Cloud adapters

@@ -13,6 +13,7 @@ import { consoleStyler } from '../ui/console-styler.mjs';
 import { GLOBAL_PLUGINS_DATA_DIR } from '../lib/paths.mjs';
 import fs from 'fs/promises';
 import path from 'path';
+import { copyPluginToWorkspace } from './plugin-fork.mjs';
 
 const PLUGIN_ACTIVATE_TIMEOUT = 15_000; // 15 seconds
 
@@ -296,13 +297,25 @@ export class PluginManager {
             });
         }
 
-        // Register sidebar section from manifest
+        // Register sidebar section(s) from manifest
         if (manifest.ui.sidebarSection) {
             api.ui.registerSidebarSection({
                 id: 'sidebar',
                 label: manifest.name || pluginName,
                 component: manifest.ui.sidebarSection
             });
+        }
+
+        // Support plural sidebarSections array (e.g. AlephNet plugins)
+        if (Array.isArray(manifest.ui.sidebarSections)) {
+            for (const section of manifest.ui.sidebarSections) {
+                api.ui.registerSidebarSection({
+                    id: section.id || 'sidebar',
+                    label: section.label || manifest.name || pluginName,
+                    component: section.component,
+                    ...(section.order != null ? { order: section.order } : {})
+                });
+            }
         }
     }
 
@@ -391,17 +404,34 @@ export class PluginManager {
      * @returns {Array<{name: string, status: string, source: string, version: string, description: string, error: string|null, ui: object}>}
      */
     listPlugins() {
-        return Array.from(this.plugins.values()).map(p => ({
-            name: p.name,
-            status: p.status,
-            source: p.discovered.source,
-            version: p.discovered.manifest.version || '0.0.0',
-            description: p.discovered.manifest.description || '',
-            error: p.error,
-            capabilities: p.discovered.manifest.capabilities || {},
-            ui: p.api?._registeredUIComponents || { tabs: [], sidebarSections: [], settingsPanels: [] },
-            reloadCount: this.loader.getReloadCount(p.name)
-        }));
+        return Array.from(this.plugins.values()).map(p => {
+            const tools = p.api?.tools?.list() || [];
+            const capabilities = p.discovered.manifest.capabilities || {};
+            const ui = p.api?._registeredUIComponents || { tabs: [], sidebarSections: [], settingsPanels: [] };
+
+            // Build a human-readable features summary
+            const featureParts = [];
+            if (tools.length > 0) featureParts.push(`${tools.length} tool(s)`);
+            if (ui.tabs.length > 0) featureParts.push(`${ui.tabs.length} tab(s)`);
+            if (ui.sidebarSections.length > 0) featureParts.push(`${ui.sidebarSections.length} sidebar section(s)`);
+            if (ui.settingsPanels.length > 0) featureParts.push(`${ui.settingsPanels.length} settings panel(s)`);
+            const capKeys = Object.keys(capabilities);
+            if (capKeys.length > 0) featureParts.push(`capabilities: ${capKeys.join(', ')}`);
+
+            return {
+                name: p.name,
+                status: p.status,
+                source: p.discovered.source,
+                version: p.discovered.manifest.version || '0.0.0',
+                description: p.discovered.manifest.description || '',
+                error: p.error,
+                capabilities,
+                tools,
+                ui,
+                features: featureParts.join('; ') || 'none',
+                reloadCount: this.loader.getReloadCount(p.name)
+            };
+        });
     }
 
     /**
@@ -554,6 +584,21 @@ export class PluginManager {
         } catch (err) {
             consoleStyler.log('warning', `Failed to save disabled plugin list: ${err.message}`);
         }
+    }
+
+    // ── Plugin Fork (copy to workspace) ─────────────────────────────────
+
+    /**
+     * Copy a plugin's source from builtin or global into the workspace
+     * `.plugins/` directory so it can be overridden locally.
+     *
+     * @param {string} pluginName — name of the plugin to fork
+     * @param {object} [options]
+     * @param {boolean} [options.force] — overwrite if workspace copy already exists
+     * @returns {Promise<{success: boolean, message: string, workspacePath?: string}>}
+     */
+    async copyPluginToWorkspace(pluginName, options = {}) {
+        return copyPluginToWorkspace(this.loader, pluginName, options);
     }
 
     // ── Shutdown ─────────────────────────────────────────────────────────

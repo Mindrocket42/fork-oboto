@@ -103,12 +103,16 @@ The `surfaceApi` global is available to all surface components at runtime. It pr
 
 ### Agent Interaction
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `surfaceApi.callAgent(prompt)` | `Promise<string>` | Send a prompt, get free-text response |
-| `surfaceApi.defineHandler(def)` | `void` | Register a typed handler with input/output schemas |
-| `surfaceApi.invoke(name, args?)` | `Promise<T>` | Invoke a handler, get typed JSON response |
-| `surfaceApi.callTool(toolName, args?)` | `Promise<T>` | Call a whitelisted server tool directly |
+| Method | Returns | LLM? | Description |
+|--------|---------|------|-------------|
+| `surfaceApi.callTool(toolName, args?)` | `Promise<T>` | No | Call a whitelisted server tool directly |
+| `surfaceApi.directInvoke(name, args?)` | `Promise<T>` | No | Execute a registered direct action |
+| `surfaceApi.fetch(url, options?)` | `Promise<FetchResponse>` | No | Server-side HTTP fetch (avoids CORS) |
+| `surfaceApi.registerAction(name, def)` | `Promise<void>` | No | Register a server-side direct action |
+| `surfaceApi.listActions(surfaceId?)` | `Promise<Action[]>` | No | List available direct actions |
+| `surfaceApi.callAgent(prompt)` | `Promise<string>` | **Yes** | Send a prompt, get free-text response (use sparingly) |
+| `surfaceApi.defineHandler(def)` | `void` | **Yes** | Register a typed handler with input/output schemas |
+| `surfaceApi.invoke(name, args?)` | `Promise<T>` | **Yes** | Invoke a handler, get typed JSON response |
 
 ### State & Messaging
 
@@ -161,11 +165,121 @@ export default function MyComponent() {
 - `onUnmount` — surface being destroyed
 - `isFocused` — reactive boolean
 
-## 6. Action Buttons (Agent Self-Invocation)
+## 6. Direct Execution vs LLM Calls
 
-Surface components can include buttons that call the AI assistant:
+Surface action handlers should prefer **direct execution** over LLM calls wherever possible. Direct execution is faster, cheaper, deterministic, and more reliable.
 
-### Simple (unstructured response)
+### When to Use Each API
+
+| Scenario | API | LLM? | Example |
+|----------|-----|------|---------|
+| Read/write workspace files | `surfaceApi.readFile()` / `writeFile()` | No | Load config, save data |
+| Call an existing tool | `surfaceApi.callTool(name, args)` | No | `callTool('list_files', { recursive: true })` |
+| HTTP request to external API | `surfaceApi.fetch(url, options)` | No | Fetch data from REST API |
+| Multi-step server pipeline | `surfaceApi.directInvoke(name, args)` | No | Registered action combining tool calls |
+| In-component computation | Plain JavaScript | No | Parse, filter, compute in the component |
+| Complex reasoning/generation | `surfaceApi.callAgent(prompt)` | **Yes** | Code analysis, natural language tasks |
+
+### Direct Tool Call (recommended)
+```jsx
+export default function FileList() {
+  const [files, setFiles] = useState([]);
+  
+  return (
+    <UI.Card>
+      <UI.CardContent>
+        <UI.Button onClick={async () => {
+          // Direct tool call — no LLM involved
+          const result = await surfaceApi.callTool('list_files', { path: 'src', recursive: true });
+          setFiles(result.split('\n').filter(Boolean));
+        }}>
+          List Source Files
+        </UI.Button>
+        {files.map(f => <div key={f} className="text-sm">{f}</div>)}
+      </UI.CardContent>
+    </UI.Card>
+  );
+}
+```
+
+### Server-Side HTTP Fetch
+```jsx
+export default function ApiDataWidget() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  
+  async function loadData() {
+    setLoading(true);
+    try {
+      // Server-side fetch — avoids CORS, no LLM needed
+      const response = await surfaceApi.fetch('https://api.example.com/data', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+      if (response.ok) setData(response.body);
+    } catch (err) {
+      UI.toast({ title: 'Failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  }
+  
+  return (
+    <UI.Card>
+      <UI.CardContent>
+        <UI.Button onClick={loadData} disabled={loading}>
+          {loading ? 'Loading...' : 'Fetch Data'}
+        </UI.Button>
+        {data && <pre className="mt-2 text-xs">{JSON.stringify(data, null, 2)}</pre>}
+      </UI.CardContent>
+    </UI.Card>
+  );
+}
+```
+
+### Registered Direct Actions
+```jsx
+export default function ProjectAnalyzer() {
+  const [result, setResult] = useState(null);
+  
+  useEffect(() => {
+    // Register a pipeline action that runs server-side without LLM
+    surfaceApi.registerAction('analyzeProject', {
+      type: 'pipeline',
+      steps: [
+        { type: 'tool', name: 'files', toolName: 'list_files', args: { path: '.', recursive: true } },
+        { type: 'tool', name: 'pkg', toolName: 'read_file', args: { path: 'package.json' } }
+      ]
+    });
+  }, []);
+  
+  return (
+    <UI.Button onClick={async () => {
+      // Executes server-side pipeline, returns combined results
+      const data = await surfaceApi.directInvoke('analyzeProject');
+      setResult(data);
+    }}>Analyze</UI.Button>
+  );
+}
+```
+
+### Built-in Direct Actions
+
+These actions are pre-registered and available immediately:
+
+| Action Name | Type | Description |
+|-------------|------|-------------|
+| `readAndParseJson` | function | Read a file and parse as JSON. Args: `{ path }` |
+| `readAndParseMarkdownTable` | function | Parse a markdown table section. Args: `{ path, section? }` |
+| `listWorkspaceFiles` | tool | List workspace files recursively |
+| `searchFiles` | function | Search for pattern in a file. Args: `{ path, pattern, flags? }` |
+| `httpGet` | fetch | HTTP GET. Args: `{ url }` or `{ _url }` |
+| `httpPost` | fetch | HTTP POST. Args: `{ url, _body }` or `{ _url, _body }` |
+
+### LLM Call (only when reasoning is needed)
+
+Reserve `callAgent` for tasks that genuinely require AI reasoning:
+
 ```jsx
 export default function AnalyzeButton() {
   const [result, setResult] = useState('');
@@ -176,45 +290,16 @@ export default function AnalyzeButton() {
       <UI.CardContent>
         <UI.Button onClick={async () => {
           setLoading(true);
-          const response = await surfaceApi.callAgent("Analyze the project structure");
+          // LLM call — justified because code analysis requires reasoning
+          const response = await surfaceApi.callAgent("Analyze the architecture of this project and suggest improvements");
           setResult(response);
           setLoading(false);
         }} disabled={loading}>
-          {loading ? 'Analyzing...' : 'Analyze Project'}
+          {loading ? 'Analyzing...' : 'AI Architecture Review'}
         </UI.Button>
-        {result && <pre className="mt-4 text-sm">{result}</pre>}
+        {result && <pre className="mt-4 text-sm whitespace-pre-wrap">{result}</pre>}
       </UI.CardContent>
     </UI.Card>
-  );
-}
-```
-
-### Typed (structured JSON response)
-```jsx
-export default function StatsWidget() {
-  const [stats, setStats] = useState(null);
-  
-  useEffect(() => {
-    surfaceApi.defineHandler({
-      name: 'getProjectStats',
-      description: 'Count files, lines of code, and dependencies',
-      type: 'query',
-      outputSchema: {
-        type: 'object',
-        properties: {
-          totalFiles: { type: 'number' },
-          linesOfCode: { type: 'number' },
-          dependencies: { type: 'number' }
-        }
-      }
-    });
-  }, []);
-  
-  return (
-    <UI.Button onClick={async () => {
-      const data = await surfaceApi.invoke('getProjectStats');
-      setStats(data);
-    }}>Get Stats</UI.Button>
   );
 }
 ```

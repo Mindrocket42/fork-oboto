@@ -275,8 +275,22 @@ ${theme.accent('THEMES:')}
 
         process.on('unhandledRejection', (reason, promise) => {
             consoleStyler.clearAllSpinners();
-            consoleStyler.log('error', `UNHANDLED REJECTION: ${reason}`);
-            consoleStyler.log('error', `At promise: ${promise}`);
+            const msg = reason?.message || String(reason);
+            const stack = reason?.stack || '';
+            consoleStyler.log('error', `UNHANDLED REJECTION: ${msg}`);
+            if (stack) consoleStyler.log('error', stack);
+
+            // VM2 sandbox errors (e.g. ReferenceError from AI-generated code)
+            // are not system-fatal — notify listeners so sandbox state can be
+            // reset, but don't kill the process.
+            if (stack.includes('vm.js') || stack.includes('vm2/lib/')) {
+                consoleStyler.log('warn', 'Sandbox error caught (non-fatal) — suppressing process exit');
+                try {
+                    process.emit('sandbox-error', { reason, promise });
+                } catch { /* listeners may not exist — safe to ignore */ }
+                return;
+            }
+
             process.exit(1);
         });
     }

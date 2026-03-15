@@ -1,3 +1,8 @@
+// TODO: DEPRECATED — This module is superseded by the cloud-gateway adapter
+// (src/core/ai-provider/adapters/cloud-gateway.mjs) and the unified AgentProfile
+// system (src/cloud/agent-profile.mjs). It is still imported by cloud-sync.mjs
+// but should be migrated to the new abstractions in a future cleanup pass.
+//
 // CloudAgent — Cloud AI agent invocation via Edge Functions
 // Handles listing and invoking cloud agents through the agent-chat endpoint.
 

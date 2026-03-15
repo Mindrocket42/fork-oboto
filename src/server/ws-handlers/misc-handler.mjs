@@ -106,10 +106,37 @@ async function handleToolConfirmationResponse(data, ctx) {
     }
 }
 
+async function handleRefreshNextSteps(_data, ctx) {
+    const { ws, assistant } = ctx;
+    try {
+        // Find the most recent user + AI exchange from conversation history
+        const history = assistant.historyManager.getHistory();
+        let lastUserInput = '';
+        let lastAiResponse = '';
+
+        for (let i = history.length - 1; i >= 0; i--) {
+            const msg = history[i];
+            if (msg.role === 'assistant' && !lastAiResponse && msg.content) {
+                lastAiResponse = msg.content;
+            } else if (msg.role === 'user' && !lastUserInput && msg.content) {
+                lastUserInput = msg.content;
+            }
+            if (lastUserInput && lastAiResponse) break;
+        }
+
+        // Generate fresh next-steps using the last exchange
+        await assistant.generateNextSteps(lastUserInput, lastAiResponse);
+    } catch (err) {
+        consoleStyler.log('error', `Failed to refresh next steps: ${err.message}`);
+        wsSendError(ws, `Failed to refresh next steps: ${err.message}`);
+    }
+}
+
 export const handlers = {
     'get-history': handleGetHistory,
     'delete-message': handleDeleteMessage,
     'run-tests': handleRunTests,
     'code-completion-request': handleCodeCompletionRequest,
-    'tool-confirmation-response': handleToolConfirmationResponse
+    'tool-confirmation-response': handleToolConfirmationResponse,
+    'refresh-next-steps': handleRefreshNextSteps
 };

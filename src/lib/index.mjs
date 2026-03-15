@@ -387,6 +387,27 @@ export { TaskManager } from '../core/task-manager.mjs';
 export { TaskCheckpointManager } from '../core/task-checkpoint-manager.mjs';
 export { CheckpointStore } from '../core/checkpoint-store.mjs';
 
+// Environment-agnostic interfaces
+export { IStorageBackend } from './interfaces/storage-backend.mjs';
+export { IEnvironment } from './interfaces/environment.mjs';
+
+// Node.js backend implementations
+export { NodeStorageBackend } from './backends/node-storage-backend.mjs';
+export { NodeEnvironment } from './backends/node-environment.mjs';
+
+// Workspace providers (Phase 2 – unified workspace abstraction)
+export { IWorkspaceProvider, LocalWorkspaceProvider, SupabaseWorkspaceProvider } from '../workspace/index.mjs';
+
+// Cloud Sync Engine (Phase 4)
+export { SyncEngine } from '../cloud/sync/sync-engine.mjs';
+export { LastWriteWinsStrategy, MergeFieldsStrategy, ManualResolutionStrategy } from '../cloud/sync/strategies/index.mjs';
+
+// Cloud Event Bridge (Phase 5)
+export { CloudEventBridge } from '../cloud/cloud-event-bridge.mjs';
+
+// Agent Profile (Phase 5)
+export { personaToProfile, cloudAgentToProfile, profileToCloudAgent, profileToPersona, mergeProfiles } from '../cloud/agent-profile.mjs';
+
 /**
  * Alias for AiMan, emphasizing the robotic developer persona.
  */

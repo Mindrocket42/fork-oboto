@@ -424,6 +424,20 @@ class WSService {
     this.sendMessage('uninstall-skill', { name });
   }
 
+  // --- Persona Management methods ---
+
+  listPersonas() {
+    this.sendMessage('list-personas');
+  }
+
+  switchPersona(personaId: string) {
+    this.sendMessage('switch-persona', { personaId });
+  }
+
+  createPersona(name: string, prompt: string) {
+    this.sendMessage('create-persona', { name, prompt });
+  }
+
   // --- Conversation Management methods ---
 
   listConversations() {
@@ -544,6 +558,12 @@ class WSService {
 
   cloudListModels() {
     this.sendMessage('cloud:list-models');
+  }
+
+  // --- Next Steps methods ---
+
+  refreshNextSteps() {
+    this.sendMessage('refresh-next-steps');
   }
 
   // --- Workspace History methods ---

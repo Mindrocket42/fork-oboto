@@ -1,0 +1,8 @@
+{
+  "name": "trading-chart",
+  "version": "2.0.0",
+  "description": "Interactive TradingView-style charts + LLM-driven crypto scalping bot with 15 technical indicators, candle prediction engine, MEXC browser-based execution, and automated trading loop",
+  "main": "index.mjs",
+  "capabilities": { "tools": true, "settings": true },
+  "trait": "Use generate_trading_chart to create interactive candlestick/OHLC charts. Use trading_get_candles to load price data, trading_compute_indicators for 15 technical indicators (RSI, MACD, EMA, SMA, Bollinger, ATR, OBV, VWAP, StochRSI, MFI, ADX, CCI, Williams %R, Ichimoku, Pivot Points), trading_predict_candles for next-candle prediction via confluence scoring, trading_scan_markets for opportunity scanning, trading_open_position / trading_close_position / trading_modify_position for MEXC futures execution, trading_get_positions / trading_get_account for status, trading_start_bot / trading_stop_bot for automated loop, trading_visualize for chart overlays with predictions, and trading_get_trade_history for performance tracking."
+}

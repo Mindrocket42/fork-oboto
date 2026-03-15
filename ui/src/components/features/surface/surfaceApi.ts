@@ -14,6 +14,43 @@ export interface HandlerDefinition {
   outputSchema: Record<string, unknown>;
 }
 
+// ─── Direct action definition types ───
+export interface DirectActionToolDef {
+  type: 'tool';
+  description?: string;
+  toolName: string;
+  args?: Record<string, unknown>;
+}
+
+export interface DirectActionFetchDef {
+  type: 'fetch';
+  description?: string;
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+  allowUrlOverride?: boolean;
+  timeout?: number;
+}
+
+export interface DirectActionPipelineDef {
+  type: 'pipeline';
+  description?: string;
+  steps: Array<{ type: string; [key: string]: unknown }>;
+  returnLastResult?: boolean;
+}
+
+export type DirectActionDefinition = DirectActionToolDef | DirectActionFetchDef | DirectActionPipelineDef;
+
+// ─── Fetch response type ───
+export interface SurfaceFetchResponse<T = unknown> {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: T;
+  ok: boolean;
+}
+
 // ─── Handler registry (shared across all components on this page) ───
 const _handlerRegistry = new Map<string, HandlerDefinition>();
 
@@ -166,6 +203,181 @@ export const surfaceApi = {
         }
       });
       wsService.sendMessage('surface-call-tool', { requestId, toolName, args: args || {} });
+    });
+  },
+
+  // ─── Direct Action Invocation (LLM-free) ───
+  /**
+   * Execute a registered direct action by name — bypasses the LLM entirely.
+   * Use for deterministic operations: tool calls, HTTP requests, pipelines.
+   * Register actions first via `registerAction()` or use built-in actions:
+   *   - 'readAndParseJson' — Read a file and parse as JSON
+   *   - 'readAndParseMarkdownTable' — Parse a markdown table section
+   *   - 'listWorkspaceFiles' — List workspace files
+   *   - 'httpGet' — HTTP GET request
+   *   - 'httpPost' — HTTP POST request
+   */
+  directInvoke: <T = unknown>(actionName: string, args?: Record<string, unknown>, surfaceId?: string): Promise<T> => {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timeout = setTimeout(() => { unsub(); reject(new Error(`directInvoke(${actionName}) timed out`)); }, 30000);
+      const unsub = wsService.on('surface-direct-result', (payload: unknown) => {
+        const p = payload as { requestId: string; success: boolean; data: T; error: string | null };
+        if (p.requestId === requestId) {
+          clearTimeout(timeout); unsub();
+          p.success ? resolve(p.data) : reject(new Error(p.error || 'Direct action failed'));
+        }
+      });
+      wsService.sendMessage('surface-direct-invoke', {
+        requestId, surfaceId: surfaceId || '', actionName, args: args || {}
+      });
+    });
+  },
+
+  /**
+   * Server-side HTTP fetch — avoids CORS and routes through the server.
+   * Use instead of browser fetch() for external API calls from surfaces.
+   * URL validation is enforced server-side (localhost/private IPs blocked by default).
+   */
+  fetch: <T = unknown>(url: string, options?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+    timeout?: number;
+  }): Promise<SurfaceFetchResponse<T>> => {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timeoutMs = options?.timeout || 30000;
+      const timeout = setTimeout(() => { unsub(); reject(new Error(`fetch(${url}) timed out`)); }, timeoutMs + 5000);
+      const unsub = wsService.on('surface-fetch-result', (payload: unknown) => {
+        const p = payload as {
+          requestId: string; success: boolean;
+          status: number; statusText: string; headers: Record<string, string>;
+          body: T; ok: boolean; error: string | null;
+        };
+        if (p.requestId === requestId) {
+          clearTimeout(timeout); unsub();
+          if (p.success) {
+            resolve({ status: p.status, statusText: p.statusText, headers: p.headers, body: p.body, ok: p.ok });
+          } else {
+            reject(new Error(p.error || 'Fetch failed'));
+          }
+        }
+      });
+      wsService.sendMessage('surface-fetch', {
+        requestId, url,
+        method: options?.method || 'GET',
+        headers: options?.headers || {},
+        body: options?.body || null,
+        timeout: options?.timeout || 30000,
+      });
+    });
+  },
+
+  /**
+   * Register a direct action on the server — enables `directInvoke(name)` calls.
+   * Actions execute server-side code without LLM involvement.
+   *
+   * @example
+   * // Register a tool-based action
+   * surfaceApi.registerAction('getSkills', { type: 'tool', toolName: 'list_skills' });
+   *
+   * // Register a fetch-based action
+   * surfaceApi.registerAction('getWeather', {
+   *   type: 'fetch', url: 'https://api.weather.com/v1/{city}', method: 'GET'
+   * });
+   *
+   * // Register a pipeline
+   * surfaceApi.registerAction('analyzeProject', {
+   *   type: 'pipeline',
+   *   steps: [
+   *     { type: 'tool', toolName: 'list_files', args: { recursive: true } },
+   *     { type: 'tool', toolName: 'read_file', args: { path: 'package.json' } }
+   *   ]
+   * });
+   */
+  registerAction: (actionName: string, definition: DirectActionDefinition, surfaceId?: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timeout = setTimeout(() => { unsub(); reject(new Error(`registerAction(${actionName}) timed out`)); }, 10000);
+      const unsub = wsService.on('surface-action-registered', (payload: unknown) => {
+        const p = payload as { requestId: string; success: boolean; error: string | null };
+        if (p.requestId === requestId) {
+          clearTimeout(timeout); unsub();
+          p.success ? resolve() : reject(new Error(p.error || 'Registration failed'));
+        }
+      });
+      wsService.sendMessage('surface-register-action', {
+        requestId, surfaceId: surfaceId || '', actionName, definition
+      });
+    });
+  },
+
+  /**
+   * List all available direct actions (global + surface-scoped).
+   */
+  listActions: (surfaceId?: string): Promise<Array<{ name: string; description: string; type: string; scope: string }>> => {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timeout = setTimeout(() => { unsub(); reject(new Error('listActions timed out')); }, 5000);
+      const unsub = wsService.on('surface-actions-list', (payload: unknown) => {
+        const p = payload as { requestId: string; success: boolean; actions: Array<{ name: string; description: string; type: string; scope: string }>; error: string | null };
+        if (p.requestId === requestId) {
+          clearTimeout(timeout); unsub();
+          p.success ? resolve(p.actions) : reject(new Error(p.error || 'Failed'));
+        }
+      });
+      wsService.sendMessage('surface-list-actions', { requestId, surfaceId: surfaceId || '' });
+    });
+  },
+
+  // ─── Surface Navigation ───
+
+  /**
+   * Open another surface by ID, optionally passing activation parameters.
+   * The target surface's components can read params via
+   * `surfaceApi.getState('_activationParams')`.
+   *
+   * @example
+   * // Open a detail surface with context data
+   * surfaceApi.openSurface('detail-view-abc', {
+   *   selectedItem: 'item-42',
+   *   mode: 'edit'
+   * });
+   */
+  openSurface: (surfaceId: string, params?: Record<string, unknown>): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timeout = setTimeout(() => { unsub(); reject(new Error(`openSurface(${surfaceId}) timed out`)); }, 10000);
+      const unsub = wsService.on('surface-open-result', (payload: unknown) => {
+        const p = payload as { requestId: string; success: boolean; error: string | null };
+        if (p.requestId === requestId) {
+          clearTimeout(timeout); unsub();
+          p.success ? resolve() : reject(new Error(p.error || 'Failed to open surface'));
+        }
+      });
+      wsService.sendMessage('surface-open-surface', {
+        requestId, surfaceId, params: params || null
+      });
+    });
+  },
+
+  /**
+   * Get the list of all surfaces in the current workspace.
+   * Useful for surface components that want to present a list of
+   * surfaces the user can navigate to.
+   *
+   * @returns Array of surface metadata objects (id, name, description, etc.)
+   */
+  getSurfaces: (): Promise<Array<{ id: string; name: string; description: string; pinned: boolean }>> => {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { unsub(); reject(new Error('getSurfaces timed out')); }, 10000);
+      const unsub = wsService.on('surface-list', (payload: unknown) => {
+        clearTimeout(timeout); unsub();
+        const surfaces = payload as Array<{ id: string; name: string; description: string; pinned: boolean }>;
+        resolve(surfaces);
+      });
+      wsService.sendMessage('get-surfaces', {});
     });
   }
 };

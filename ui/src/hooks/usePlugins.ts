@@ -12,6 +12,8 @@ export interface PluginInfo {
   description: string;
   error: string | null;
   capabilities: Record<string, boolean>;
+  tools?: string[];
+  features?: string;
   ui: PluginUIRegistrations;
 }
 

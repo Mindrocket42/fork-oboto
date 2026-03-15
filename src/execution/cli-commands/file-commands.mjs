@@ -35,6 +35,20 @@ export function createFileCommands(fileTools) {
                 }
 
                 const filePath = args[0];
+
+                // Detect directory paths and redirect to ls
+                try {
+                    const resolvedPath = path.resolve(fileTools.workspaceRoot, filePath);
+                    if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()) {
+                        // Auto-redirect: cat on a directory → ls
+                        const lsResult = await fileTools.listFiles({ path: filePath, recursive: false });
+                        if (lsResult.startsWith('[error]')) {
+                            return { output: lsResult, exitCode: 1 };
+                        }
+                        return { output: lsResult, exitCode: 0 };
+                    }
+                } catch { /* fall through to readFile */ }
+
                 const result = await fileTools.readFile({ path: filePath });
 
                 if (result.startsWith('[error]')) {

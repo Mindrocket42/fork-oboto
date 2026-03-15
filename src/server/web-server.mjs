@@ -50,6 +50,7 @@ import { handlers as workspaceHandlers } from './ws-handlers/workspace-handler.m
 import { handlers as skillsHandlers } from './ws-handlers/skills-handler.mjs';
 import { handlers as cloudHandlers } from './ws-handlers/cloud-handler.mjs';
 import { handlers as pluginHandlers } from './ws-handlers/plugin-handler.mjs';
+import { handlers as personaHandlers } from './ws-handlers/persona-handler.mjs';
 import { mountDynamicRoutes } from './dynamic-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -75,6 +76,7 @@ function buildDispatcher() {
     dispatcher.registerAll(skillsHandlers);
     dispatcher.registerAll(cloudHandlers);
     dispatcher.registerAll(pluginHandlers);
+    dispatcher.registerAll(personaHandlers);
     return dispatcher;
 }
 

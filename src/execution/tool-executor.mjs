@@ -34,6 +34,9 @@ import { SurfaceHandlers } from './handlers/surface-handlers.mjs';
 import { dryRunGuard } from './dry-run-guard.mjs';
 import { McpHandlers } from './handlers/mcp-handlers.mjs';
 import { TOOLS } from '../tools/tool-definitions.mjs';
+import { PluginLoader } from '../plugins/plugin-loader.mjs';
+import { copyPluginToWorkspace } from '../plugins/plugin-fork.mjs';
+import { sanitizeDirectMarkdown } from '../lib/sanitize-markdown.mjs';
 
 // Tools whose output should NOT be processed by the presentation layer.
 // These return structured JSON or very short confirmations that don't benefit
@@ -73,6 +76,8 @@ const PRESENTATION_SKIP_TOOLS = new Set([
     'ask_blocking_question',
     // Desktop tools return structured data or images
     'screen_capture',
+    // Plugin tools return structured JSON
+    'list_available_plugins',
 ]);
 
 const TOOL_TIMEOUTS = {
@@ -368,6 +373,10 @@ export class ToolExecutor {
             this.registerTool('mcp_refresh_servers', this.mcpHandlers.refreshServers.bind(this.mcpHandlers));
         }
 
+        // Plugin Tools
+        this.registerTool('copy_plugin_to_workspace', this.copyPluginToWorkspace.bind(this));
+        this.registerTool('list_available_plugins', this.listAvailablePlugins.bind(this));
+
         // Surface Tools
         this.registerTool('create_surface', this.surfaceHandlers.createSurface.bind(this.surfaceHandlers));
         this.registerTool('update_surface_component', this.surfaceHandlers.updateSurfaceComponent.bind(this.surfaceHandlers));
@@ -653,6 +662,12 @@ export class ToolExecutor {
                 const pluginHandler = this._pluginHandlers.get(functionName);
                 try {
                     toolResultText = await pluginHandler(args);
+                    // Handle __directMarkdown: plugins can return { __directMarkdown: "..." }
+                    // to inject markdown (e.g. code fences for tradingchart, mathanim) directly
+                    // into the assistant's response instead of being shown as a tool result.
+                    if (toolResultText && typeof toolResultText === 'object' && toolResultText.__directMarkdown) {
+                        toolResultText = sanitizeDirectMarkdown(toolResultText.__directMarkdown);
+                    }
                 } catch (pluginErr) {
                     consoleStyler.log('error', `Plugin tool error (${functionName}): ${pluginErr.message}`);
                     toolResultText = `Plugin tool error (${functionName}): ${pluginErr.message}`;
@@ -862,6 +877,30 @@ export class ToolExecutor {
             }, () => {});
         }
         return await this.shellTools.runCommand(args);
+    }
+
+    // Copy plugin to workspace .plugins/ directory
+    async copyPluginToWorkspace(args) {
+        const { plugin_name, force = false } = args;
+        const workspaceRoot = this.workspaceManager?.workspaceRoot || process.cwd();
+        const loader = new PluginLoader(workspaceRoot);
+        const result = await copyPluginToWorkspace(loader, plugin_name, { force });
+        return result.message;
+    }
+
+    // List all discoverable plugins
+    async listAvailablePlugins(args) {
+        const workspaceRoot = this.workspaceManager?.workspaceRoot || process.cwd();
+        const loader = new PluginLoader(workspaceRoot);
+        const discovered = await loader.discover();
+        const list = discovered.map(p => ({
+            name: p.name,
+            source: p.source,
+            version: p.manifest.version || '0.0.0',
+            description: p.manifest.description || '',
+            dir: p.dir
+        }));
+        return JSON.stringify(list, null, 2);
     }
 
     getCurrentTodos() {

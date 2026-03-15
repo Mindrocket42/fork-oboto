@@ -1,6 +1,7 @@
 import { emitStatus, summarizeInput, describeToolCall } from './status-reporter.mjs';
 import { isCancellationError } from './ai-provider.mjs';
 import { consoleStyler } from '../ui/console-styler.mjs';
+import { sanitizeDirectMarkdown } from '../lib/sanitize-markdown.mjs';
 
 /**
  * Gracefully clean up error listeners and persist state on early exit
@@ -52,6 +53,62 @@ const WRAPUP_TOOLS = new Set([
     'update_surface_component', 'create_surface', 'attempt_completion'
 ]);
 
+// Tools related to task management
+export const TASK_TOOLS = [
+    {
+        type: "function",
+        function: {
+            name: "add_tasks",
+            description: "Add one or more tasks to your current plan. Tasks are processed sequentially.",
+            parameters: {
+                type: "object",
+                properties: {
+                    tasks: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "A list of task descriptions to add"
+                    }
+                },
+                required: ["tasks"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "complete_current_task",
+            description: "Mark the current running task as completed. It will be moved to the completed tasks list.",
+            parameters: {
+                type: "object",
+                properties: {
+                    result: {
+                        type: "string",
+                        description: "A brief summary of the final result of this task"
+                    }
+                },
+                required: ["result"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "fail_current_task",
+            description: "Mark the current running task as failed. It will be moved to the completed tasks list with a failed status.",
+            parameters: {
+                type: "object",
+                properties: {
+                    reason: {
+                        type: "string",
+                        description: "The reason why the task failed"
+                    }
+                },
+                required: ["reason"]
+            }
+        }
+    }
+];
+
 /**
  * Evaluate a text response inline — returns { action, guidance } without dispatching.
  * Replaces the former EVALUATE_TEXT_RESPONSE handler.
@@ -86,8 +143,11 @@ function evaluateTextResponse(content, input, retryCount) {
  * Evaluate tool results inline — returns guidance string or null.
  * Replaces the former CRITIC_EVALUATE_TOOLS handler.
  */
-function evaluateToolResults(ctx, toolNames) {
-    const allSucceeded = ctx.errors.length === 0;
+function evaluateToolResults(ctx, toolNames, results) {
+    const allSucceeded = results.every(res => {
+        const content = res.content || '';
+        return !/^error:/i.test(content.trim());
+    });
 
     // Wrap-up tool succeeded → ask the model for a brief summary
     if (allSucceeded && toolNames.some(name => WRAPUP_TOOLS.has(name))) {
@@ -106,7 +166,7 @@ function evaluateToolResults(ctx, toolNames) {
 
     // Tools produced errors but no other trigger fired → nudge the model to address them
     if (!allSucceeded) {
-        return 'Some tools encountered errors. Review the errors and fix them before continuing.';
+        return 'Some tools encountered errors. Review the errors in your history and fix them before continuing.';
     }
 
     // No guidance — continue normally
@@ -152,8 +212,9 @@ export const EventicAgentLoopPlugin = {
             ctx.requestId = `evt-${Date.now()}`;
             
             // Task context: accumulates across the entire request lifecycle
-            ctx.completedActions = []; // { tool, status, result_summary }
-            ctx.errors = []; // errors encountered
+            ctx.tasks = []; // array of task strings or objects
+            ctx.completedTasks = []; // Moved here when done
+            ctx.directMarkdownBlocks = []; // accumulated __directMarkdown outputs (e.g. tradingchart code fences)
             
             if (ctx.stateManager) {
                 ctx.stateManager.loadHistory(engine);
@@ -249,6 +310,13 @@ export const EventicAgentLoopPlugin = {
             if (typeof engine.getAvailableTools === 'function') {
                 tools = engine.getAvailableTools();
             }
+            
+            // Add dynamic task tools to the payload only when useful:
+            // on turn 1 (so the model can create a plan) or when tasks already exist.
+            // Skipping them on subsequent turns with no tasks saves ~500 prompt tokens.
+            if (ctx.turnNumber <= 1 || ctx.tasks.length > 0) {
+                tools = [...tools, ...TASK_TOOLS];
+            }
 
             let prompt;
             if (ctx.turnNumber === 1) {
@@ -281,28 +349,41 @@ export const EventicAgentLoopPlugin = {
                 parts.push(`[TURN ${ctx.turnNumber}/${ctx.maxTurns}]`);
                 parts.push('');
                 
-                // Show errors first (most important — the AI MUST see these)
-                if (ctx.errors.length > 0) {
-                    parts.push(`⚠️ [ERRORS FROM PREVIOUS ACTIONS — YOU MUST ADDRESS THESE]:`);
-                    for (const err of ctx.errors) {
-                        parts.push(`  ❌ ${err.tool}: ${err.error}`);
-                    }
-                    parts.push('');
-                    ctx.errors = [];
-                }
-                
-                // Show recent completed actions for context
-                if (ctx.completedActions.length > 0) {
-                    const recent = ctx.completedActions.slice(-5);
-                    parts.push(`[COMPLETED ACTIONS (${ctx.completedActions.length} total)]:`);
-                    for (const action of recent) {
-                        const icon = action.status === 'error' ? '❌' : '✅';
-                        parts.push(`  ${icon} ${action.tool}: ${action.summary}`);
+                // Show completed tasks for context
+                if (ctx.completedTasks.length > 0) {
+                    parts.push(`[COMPLETED TASKS]:`);
+                    for (const task of ctx.completedTasks) {
+                        const icon = task.status === 'failed' ? '❌' : '✅';
+                        parts.push(`  ${icon} ${task.description}: ${task.result || 'No result recorded'}`);
                     }
                     parts.push('');
                 }
                 
-                parts.push('Review the tool results in your conversation history above. If there were errors, fix them before proceeding. Continue working on the original task.');
+                // Show pending/running tasks
+                if (ctx.tasks.length > 0) {
+                    parts.push(`[CURRENT TASKS]:`);
+                    for (const task of ctx.tasks) {
+                        const desc = typeof task === 'string' ? task : task.description;
+                        const status = typeof task === 'string' ? 'pending' : task.status;
+                        const icon = status === 'running' ? '⏳' : '⏳';
+                        parts.push(`  ${icon} ${desc} (${status})`);
+                    }
+                    parts.push('');
+                    
+                    // Instruct the AI to process the first incomplete task
+                    const currentTask = ctx.tasks[0];
+                    if (currentTask) {
+                        const desc = typeof currentTask === 'string' ? currentTask : currentTask.description;
+                        const result = typeof currentTask === 'string' ? null : currentTask.result;
+                        parts.push(`Please focus on completing the next pending task: "${desc}".`);
+                        if (result) {
+                            parts.push(`Recent result for this task: ${result}`);
+                        }
+                    }
+                } else {
+                    parts.push('Review the tool results in your conversation history above. If there are no pending tasks, formulate a plan by creating a list of tasks. Otherwise, continue working on the original task.');
+                }
+                
                 prompt = parts.join('\n');
             }
             
@@ -381,7 +462,19 @@ export const EventicAgentLoopPlugin = {
                 }
 
                 cleanupErrorListener(ctx);
-                return { completed: true, response: content };
+
+                // Append any accumulated __directMarkdown blocks (e.g. tradingchart code fences)
+                // that tools emitted during this request.  The AI typically paraphrases tool
+                // results in prose and does NOT echo special code fences, so the UI's
+                // MarkdownRenderer would never see them.  Appending here ensures they appear
+                // in message.content where MarkdownRenderer can render them as visual widgets.
+                let finalResponse = content;
+                if (ctx.directMarkdownBlocks && ctx.directMarkdownBlocks.length > 0) {
+                    finalResponse = content + '\n\n' + ctx.directMarkdownBlocks.join('\n\n');
+                    ctx.directMarkdownBlocks = []; // consumed
+                }
+
+                return { completed: true, response: finalResponse };
             }
 
             // Failsafe
@@ -407,37 +500,82 @@ export const EventicAgentLoopPlugin = {
                 }
 
                 const functionName = toolCall.function.name;
-                const toolFunction = engine.tools.get(functionName);
+                let toolResultText = '';
+                let toolFailed = false;
                 
-                // Emit per-tool start status with description
                 let args = toolCall.function.arguments;
                 if (typeof args === 'string') {
                     try { args = JSON.parse(args); } catch (e) {}
                 }
-                const toolDesc = describeToolCall(functionName, args || {});
-                if (toolCalls.length > 1) {
-                    emitStatus(`Running tool ${i + 1}/${toolCalls.length}: ${toolDesc}`);
-                } else {
-                    emitStatus(`Running tool: ${toolDesc}`);
-                }
                 
-                let toolResultText = '';
-                let toolFailed = false;
-                if (toolFunction) {
-                    try {
-                        // Pass signal to tool function
-                        toolResultText = await toolFunction(args, { signal });
-                    } catch (e) {
+                // Handle dynamic task tools internally
+                if (functionName === 'add_tasks') {
+                    const tasksToAdd = Array.isArray(args.tasks) ? args.tasks : [args.tasks];
+                    ctx.tasks = [...ctx.tasks, ...tasksToAdd.map(t => ({ description: t, status: 'pending' }))];
+                    toolResultText = `Added ${tasksToAdd.length} tasks to the plan.`;
+                } else if (functionName === 'complete_current_task') {
+                    if (ctx.tasks.length > 0) {
+                        const completed = ctx.tasks.shift();
+                        completed.status = 'completed';
+                        completed.result = args.result || 'Task completed successfully.';
+                        ctx.completedTasks.push(completed);
+                        toolResultText = `Task marked as completed. Moved to completed list.`;
+                    } else {
+                        toolResultText = `Error: No current task to complete.`;
                         toolFailed = true;
-                        if (isCancellationError(e) || (signal && signal.aborted)) {
-                            toolResultText = 'Error: Tool execution cancelled by user.';
-                        } else {
-                            toolResultText = `Error: ${e.message}`;
-                        }
+                    }
+                } else if (functionName === 'fail_current_task') {
+                     if (ctx.tasks.length > 0) {
+                        const failed = ctx.tasks.shift();
+                        failed.status = 'failed';
+                        failed.result = args.reason || 'Task failed.';
+                        ctx.completedTasks.push(failed);
+                        toolResultText = `Task marked as failed. Moved to completed list.`;
+                    } else {
+                        toolResultText = `Error: No current task to fail.`;
+                        toolFailed = true;
                     }
                 } else {
-                    toolResultText = `Error: Unknown tool: ${functionName}`;
-                    toolFailed = true;
+                    // Regular tool execution
+                    const toolFunction = engine.tools.get(functionName);
+                    
+                    // Emit per-tool start status with description
+                    const toolDesc = describeToolCall(functionName, args || {});
+                    if (toolCalls.length > 1) {
+                        emitStatus(`Running tool ${i + 1}/${toolCalls.length}: ${toolDesc}`);
+                    } else {
+                        emitStatus(`Running tool: ${toolDesc}`);
+                    }
+                    
+                    if (toolFunction) {
+                        try {
+                            // Pass signal to tool function
+                            toolResultText = await toolFunction(args, { signal });
+                            // Handle __directMarkdown: plugins can return { __directMarkdown: "..." }
+                            // to inject markdown (e.g. code fences for tradingchart, mathanim) directly
+                            // into the assistant's response instead of being shown as raw JSON.
+                            if (toolResultText && typeof toolResultText === 'object' && toolResultText.__directMarkdown) {
+                                const mdBlock = sanitizeDirectMarkdown(toolResultText.__directMarkdown);
+                                toolResultText = mdBlock;
+                                // Accumulate for appending to the AI's final text response so the
+                                // UI's MarkdownRenderer can render special code fences (tradingchart, etc.)
+                                // even when the AI paraphrases instead of echoing the code fence.
+                                if (ctx.directMarkdownBlocks) {
+                                    ctx.directMarkdownBlocks.push(mdBlock);
+                                }
+                            }
+                        } catch (e) {
+                            toolFailed = true;
+                            if (isCancellationError(e) || (signal && signal.aborted)) {
+                                toolResultText = 'Error: Tool execution cancelled by user.';
+                            } else {
+                                toolResultText = `Error: ${e.message}`;
+                            }
+                        }
+                    } else {
+                        toolResultText = `Error: Unknown tool: ${functionName}`;
+                        toolFailed = true;
+                    }
                 }
                 
                 // Emit per-tool completion status using the flag set in the
@@ -454,24 +592,26 @@ export const EventicAgentLoopPlugin = {
             
             ctx.toolCallCount = (ctx.toolCallCount || 0) + toolCalls.length;
             
-            // Record results in task context for subsequent turns
-            for (const res of results) {
-                const content = res.content || '';
-                // Use structured detection: check for explicit error prefix pattern
-                // (tools return "Error: ..." as their convention)
-                const isError = /^error:/i.test(content.trim());
-                const summary = content.substring(0, 150) + (content.length > 150 ? '...' : '');
+            // Update running task with tool result summary
+            if (ctx.tasks && ctx.tasks.length > 0) {
+                // we always process the first task in the list
+                let currentTask = ctx.tasks[0];
                 
-                const action = {
-                    tool: res.name,
-                    status: isError ? 'error' : 'success',
-                    summary
-                };
-                ctx.completedActions.push(action);
-                
-                if (isError) {
-                    ctx.errors.push({ tool: res.name, error: summary });
+                // If it's just a string, convert to object to hold state
+                if (typeof currentTask === 'string') {
+                    currentTask = { description: currentTask, status: 'running' };
+                    ctx.tasks[0] = currentTask;
                 }
+                
+                currentTask.status = 'running';
+                
+                // We just store a summary of the latest tool execution for context
+                const summaries = results.map(res => {
+                    const content = res.content || '';
+                    const isError = /^error:/i.test(content.trim());
+                    return `${isError ? '❌ Error in' : '✅'} ${res.name}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`;
+                });
+                currentTask.result = summaries.join(' | ');
             }
             
             // Push tool results to AI provider history
@@ -494,9 +634,7 @@ export const EventicAgentLoopPlugin = {
             }
 
             // Inline tool evaluation (formerly CRITIC_EVALUATE_TOOLS handler).
-            // ctx.errors here contains only errors from this EXECUTE_TOOLS turn;
-            // prior-turn errors were already cleared in ACTOR_CRITIC_LOOP (line ~258).
-            const guidance = evaluateToolResults(ctx, toolNames);
+            const guidance = evaluateToolResults(ctx, toolNames, results);
 
             if (guidance) {
                 log(`Tool evaluation guidance: ${guidance}`);

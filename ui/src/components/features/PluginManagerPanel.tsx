@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Puzzle, ToggleLeft, ToggleRight, RefreshCw, AlertCircle, CheckCircle, Package, Globe, FolderOpen, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { Puzzle, ToggleLeft, ToggleRight, RefreshCw, AlertCircle, CheckCircle, Package, Globe, FolderOpen, ChevronDown, ChevronRight, Settings, Wrench } from 'lucide-react';
 import type { PluginInfo } from '../../hooks/usePlugins';
 
 interface PluginManagerPanelProps {
@@ -48,6 +48,7 @@ const PluginManagerPanel: React.FC<PluginManagerPanelProps> = ({
   onReload,
 }) => {
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
 
   if (loading) {
     return (
@@ -173,6 +174,68 @@ const PluginManagerPanel: React.FC<PluginManagerPanelProps> = ({
                         </span>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Tools */}
+                {(() => {
+                  const tools = plugin.tools || [];
+                  const hasTools = tools.length > 0;
+                  const toolsExpanded = expandedTools.has(plugin.name);
+                  const TOOL_COLLAPSE_THRESHOLD = 8;
+                  const isCollapsible = tools.length > TOOL_COLLAPSE_THRESHOLD;
+                  const visibleTools = isCollapsible && !toolsExpanded ? tools.slice(0, TOOL_COLLAPSE_THRESHOLD) : tools;
+
+                  return (
+                    <div>
+                      <p className="text-[9px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <Wrench size={9} />
+                        Tools {hasTools && <span className="text-zinc-600">({tools.length})</span>}
+                      </p>
+                      {hasTools ? (
+                        <>
+                          <div className={`flex flex-wrap gap-1 ${isCollapsible && toolsExpanded ? 'max-h-32 overflow-y-auto' : ''}`}>
+                            {visibleTools.map((tool) => (
+                              <span
+                                key={tool}
+                                className="text-[9px] px-1.5 py-0.5 rounded bg-teal-500/15 text-teal-400 border border-teal-500/20"
+                              >
+                                {tool}
+                              </span>
+                            ))}
+                          </div>
+                          {isCollapsible && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedTools(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(plugin.name)) {
+                                    next.delete(plugin.name);
+                                  } else {
+                                    next.add(plugin.name);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="text-[9px] text-teal-500 hover:text-teal-300 mt-1 transition-colors"
+                            >
+                              {toolsExpanded ? '▲ Show fewer' : `▼ Show all ${tools.length} tools`}
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-[9px] text-zinc-600 italic">No tools registered</span>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Features */}
+                {plugin.features && (
+                  <div>
+                    <p className="text-[9px] text-zinc-500 uppercase tracking-wider mb-1">Features</p>
+                    <p className="text-[10px] text-zinc-400 leading-relaxed">{plugin.features}</p>
                   </div>
                 )}
 

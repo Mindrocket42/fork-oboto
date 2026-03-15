@@ -297,11 +297,12 @@ export default function RisksWidget() {
 }
 `,
 
-    // Action Buttons
+    // Action Buttons — uses direct tool calls instead of LLM callAgent
     ActionButtons: `
 export default function ActionButtons() {
   const [phase, setPhase] = useState('Ideation');
   const [loading, setLoading] = useState(false);
+  const [statusReport, setStatusReport] = useState(null);
 
   useEffect(() => {
     surfaceApi.readFile('PROJECT_MAP.md').then(content => {
@@ -325,11 +326,49 @@ export default function ActionButtons() {
     if (!currentAction.tool) return;
     setLoading(true);
     try {
-      await surfaceApi.callAgent(\`Execute \${currentAction.tool} for this project\`);
-      // Reload phase
+      // Direct tool call — no LLM needed for phase transitions
+      await surfaceApi.callTool(currentAction.tool, {});
+      // Reload phase directly from file
       const content = await surfaceApi.readFile('PROJECT_MAP.md');
       const match = content.match(/Current Phase \\|\\s*([^|]+)\\s*\\|/);
       if (match) setPhase(match[1].trim());
+    } catch (err) {
+      UI.toast({ title: 'Action failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleViewStatus() {
+    setLoading(true);
+    try {
+      // Read project file directly instead of asking LLM
+      const content = await surfaceApi.readFile('PROJECT_MAP.md');
+      // Parse key sections for status
+      const phaseMatch = content.match(/Current Phase \\|\\s*([^|]+)\\s*\\|/);
+      const statusMatch = content.match(/Status \\|\\s*([^|]+)\\s*\\|/);
+      const taskSection = content.match(/## 5\\. Task Breakdown([\\s\\S]*?)(?=## 6|$)/);
+      
+      let taskSummary = 'No tasks found';
+      if (taskSection) {
+        const lines = taskSection[1].split('\\n').filter(l => l.trim().startsWith('|') && !l.includes('Task') && !l.includes('---'));
+        const statuses = lines.map(l => {
+          const cols = l.split('|').map(c => c.trim());
+          return cols[5] || '';
+        });
+        const done = statuses.filter(s => s === 'Done').length;
+        const inProgress = statuses.filter(s => s === 'In Progress').length;
+        const blocked = statuses.filter(s => s === 'Blocked').length;
+        taskSummary = \`\${done}/\${statuses.length} done, \${inProgress} in progress, \${blocked} blocked\`;
+      }
+
+      setStatusReport({
+        phase: phaseMatch ? phaseMatch[1].trim() : 'Unknown',
+        status: statusMatch ? statusMatch[1].trim() : 'Unknown',
+        tasks: taskSummary
+      });
+    } catch (err) {
+      UI.toast({ title: 'Failed to load status', description: err.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -352,10 +391,18 @@ export default function ActionButtons() {
         <UI.Button 
           variant="outline" 
           className="w-full"
-          onClick={() => surfaceApi.callAgent('Show project status report')}
+          onClick={handleViewStatus}
+          disabled={loading}
         >
           View Status Report
         </UI.Button>
+        {statusReport && (
+          <div className="mt-2 p-2 rounded bg-zinc-800 text-sm space-y-1">
+            <div>Phase: <span className="text-blue-400">{statusReport.phase}</span></div>
+            <div>Status: <span className="text-green-400">{statusReport.status}</span></div>
+            <div>Tasks: <span className="text-zinc-300">{statusReport.tasks}</span></div>
+          </div>
+        )}
       </UI.CardContent>
     </UI.Card>
   );

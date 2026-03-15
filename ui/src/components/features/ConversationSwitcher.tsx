@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { MessageSquarePlus, ChevronDown, Trash2, GitBranch, Crown, Pencil } from 'lucide-react';
 import type { ConversationInfo } from '../../hooks/useChat';
 
@@ -45,14 +46,20 @@ const ConversationSwitcher: React.FC<ConversationSwitcherProps> = ({
   const [renamingConversation, setRenamingConversation] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0, conversationName: '' });
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click (check both trigger and portal dropdown)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(target) &&
+        triggerRef.current && !triggerRef.current.contains(target)
+      ) {
         setIsOpen(false);
         setRenamingConversation(null);
       }
@@ -61,6 +68,17 @@ const ConversationSwitcher: React.FC<ConversationSwitcherProps> = ({
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  // Position the dropdown portal beneath the trigger button
+  useEffect(() => {
+    if (isOpen && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    if (!isOpen) {
+      setDropdownPos(null);
+    }
   }, [isOpen]);
 
   // Close context menu on outside click or Escape
@@ -145,9 +163,10 @@ const ConversationSwitcher: React.FC<ConversationSwitcherProps> = ({
   if (conversations.length === 0) return null;
 
   return (
-    <div className={`relative ${className}`} ref={dropdownRef}>
+    <div className={`relative ${className}`}>
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         onClick={() => setIsOpen(prev => !prev)}
         className="
           flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-medium font-mono
@@ -166,13 +185,17 @@ const ConversationSwitcher: React.FC<ConversationSwitcherProps> = ({
         <ChevronDown size={10} className={`text-zinc-600 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown */}
-      {isOpen && (
-        <div className="
-          absolute top-full left-0 mt-1 w-64 z-[99999]
-          bg-[#111111] border border-zinc-800/60 rounded-xl shadow-2xl shadow-black/60
-          overflow-hidden animate-fade-in
-        ">
+      {/* Dropdown — rendered via portal to escape header stacking context */}
+      {isOpen && dropdownPos && createPortal(
+        <div
+          ref={dropdownRef}
+          className="
+            fixed w-64 z-[99999]
+            bg-[#111111] border border-zinc-800/60 rounded-xl shadow-2xl shadow-black/60
+            overflow-hidden animate-fade-in
+          "
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/40">
             <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
@@ -300,11 +323,12 @@ const ConversationSwitcher: React.FC<ConversationSwitcherProps> = ({
           <div className="px-3 py-1.5 border-t border-zinc-800/40 text-[9px] text-zinc-600">
             Child conversations can report to the main &quot;chat&quot; thread
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Context menu */}
-      {contextMenu.visible && (
+      {/* Context menu — also via portal for consistent z-order */}
+      {contextMenu.visible && createPortal(
         <div
           ref={contextMenuRef}
           className="fixed z-[99999] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl shadow-black/50 py-1 min-w-[140px]"
@@ -330,7 +354,8 @@ const ConversationSwitcher: React.FC<ConversationSwitcherProps> = ({
             <Trash2 size={12} className="text-zinc-400" />
             Delete
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -8,6 +8,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import HtmlSandbox from '../features/HtmlSandbox';
 import { ChartBlock } from './ChartBlock';
 import { MathAnimBlock } from './MathAnimBlock';
+import { TradingChartBlock } from './TradingChartBlock';
 import { Copy, Check } from 'lucide-react';
 import { resolveBackendUrl } from '../../utils/resolveBackendUrl';
 
@@ -97,6 +98,11 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = memo(({ content }) => 
           // Math animation blocks
           if (lang === 'mathanim') {
              return <MathAnimBlock code={codeString} />;
+          }
+
+          // Trading chart blocks
+          if (lang === 'tradingchart') {
+             return <TradingChartBlock code={codeString} />;
           }
 
           return (

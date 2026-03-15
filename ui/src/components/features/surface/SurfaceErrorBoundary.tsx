@@ -14,6 +14,7 @@ interface Props {
   surfaceId: string;
   componentName: string;
   source: string;
+  componentProps?: Record<string, unknown>;
   children: React.ReactNode;
 }
 
@@ -40,9 +41,11 @@ export class SurfaceErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    const errorMessage = `${error.message}\n\nComponent Stack:${info.componentStack || '(unavailable)'}`;
+    const jsStack = error.stack || '(no JS stack available)';
+    const componentStack = info.componentStack || '(unavailable)';
+    const errorMessage = `${error.message}\n\nJS Stack Trace:\n${jsStack}\n\nReact Component Stack:${componentStack}`;
     console.error(`[Surface Runtime Error] ${this.props.componentName}:`, errorMessage);
-    // Store the detailed error (with component stack) so handleFix can send it to the agent.
+    // Store the detailed error (with both JS and component stack) so handleFix can send it to the agent.
     this.setState({ detailedError: errorMessage });
   }
 
@@ -90,12 +93,27 @@ export class SurfaceErrorBoundary extends React.Component<Props, State> {
     // Fallback: if server never responds, stop the spinner after FIX_TIMEOUT_MS
     this._clearFixTimeout();
     this._fixTimeout = setTimeout(() => this.setState({ fixing: false }), FIX_TIMEOUT_MS);
+
+    // Safely serialize component props for AI context (catch circular refs)
+    let propsSnapshot: string | undefined;
+    if (this.props.componentProps) {
+      try {
+        propsSnapshot = JSON.stringify(this.props.componentProps, null, 2);
+        if (propsSnapshot && propsSnapshot.length > 4096) {
+          propsSnapshot = propsSnapshot.slice(0, 4096) + '\n…(truncated)';
+        }
+      } catch {
+        propsSnapshot = '(props not serializable)';
+      }
+    }
+
     wsService.sendMessage('surface-auto-fix', {
       surfaceId: this.props.surfaceId,
       componentName: this.props.componentName,
       errorType: 'runtime',
       error: this.state.detailedError || this.state.error,
       source: this.props.source,
+      componentProps: propsSnapshot,
       attempt
     });
   };

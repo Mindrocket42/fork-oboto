@@ -138,7 +138,7 @@ export const ComponentWrapper: React.FC<{
   }
 
   return (
-    <SurfaceErrorBoundary surfaceId={surfaceId} componentName={component.name} source={source}>
+    <SurfaceErrorBoundary surfaceId={surfaceId} componentName={component.name} source={source} componentProps={component.props}>
       <div className="surface-component-scope flex-1 min-h-0 w-full min-w-0">
         <Suspense fallback={<div className="h-20 animate-pulse bg-zinc-800/20 rounded-xl w-full" />}>
           <Component {...component.props} />

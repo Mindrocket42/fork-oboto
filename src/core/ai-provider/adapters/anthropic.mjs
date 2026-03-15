@@ -1,3 +1,8 @@
+// TODO: Consider consolidating with anthropic-direct.mjs — both files share
+// nearly identical sanitizeInputSchema, translateMessages, buildAnthropicBody,
+// mapFinishReason, and anthropicResponseToOpenai implementations. The key
+// difference is that this file uses the Vertex SDK while anthropic-direct.mjs
+// uses raw REST fetch. A shared utility module could eliminate the duplication.
 import AnthropicVertex from '@anthropic-ai/vertex-sdk';
 import { config } from '../../../config.mjs';
 

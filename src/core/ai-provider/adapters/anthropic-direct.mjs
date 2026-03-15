@@ -1,3 +1,8 @@
+// TODO: Consider consolidating with anthropic.mjs — both files share nearly
+// identical sanitizeInputSchema, translateMessages, buildAnthropicBody,
+// mapFinishReason, and anthropicResponseToOpenai implementations. This file
+// uses raw REST fetch while anthropic.mjs uses the Vertex SDK. A shared
+// utility module could eliminate the duplication.
 import { AI_PROVIDERS } from '../constants.mjs';
 import { withRetry, isCancellationError } from '../utils.mjs';
 

@@ -146,7 +146,7 @@ const Header: React.FC<HeaderProps> = ({
     <header
       className={`
         h-12 border-b flex items-center justify-between px-4 select-none shrink-0
-        transition-all duration-500 relative
+        transition-all duration-500 relative z-[60]
         ${isAgentWorking
           ? 'bg-gradient-to-r from-[#0e0e14] via-[#0c0c10] to-[#0e0e14] border-indigo-500/30'
           : 'bg-gradient-to-r from-[#0e0e12] via-[#0d0d10] to-[#0e0e12] border-zinc-700/40'}

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Paperclip, Image as ImageIcon, X, FileText, Zap, Activity, Trash2, Download, GitBranch, Folder, BookOpen, FlaskConical, Code2, Mic, MicOff, Square, Play, Bot, ChevronDown, Check } from 'lucide-react';
+import { Send, Paperclip, Image as ImageIcon, X, FileText, Zap, Activity, Trash2, Download, GitBranch, Folder, BookOpen, FlaskConical, Code2, Mic, MicOff, Square, Play, Bot, ChevronDown, Check, RefreshCw } from 'lucide-react';
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 import VoiceWaveform from '../features/VoiceWaveform';
 import AgentActivityPanel from './AgentActivityPanel';
@@ -23,6 +23,8 @@ interface InputAreaProps {
   onStop?: () => void;
   commands?: Command[];
   suggestions?: Command[];
+  /** Callback to refresh/reload the suggestion chips */
+  onRefreshSuggestions?: () => void;
   /** Optional external ref to the textarea for focusing from parent */
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   availableModels?: Record<string, { provider: string }>;
@@ -87,6 +89,7 @@ const InputArea: React.FC<InputAreaProps> = ({
     { id: 'clear', label: '/clear', desc: 'Wipe thread memory', icon: <Trash2 size={14} /> },
   ],
   suggestions = [],
+  onRefreshSuggestions,
   inputRef: externalInputRef,
   availableModels = {},
   selectedModel,
@@ -466,7 +469,7 @@ const InputArea: React.FC<InputAreaProps> = ({
 
         {/* Suggestion chips */}
         {suggestions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-zinc-800/20 animate-fade-in">
+          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-zinc-800/20 animate-fade-in">
             {suggestions.map((a, i) => (
               <button
                 key={a.id || i}
@@ -484,6 +487,19 @@ const InputArea: React.FC<InputAreaProps> = ({
                 <span className="text-indigo-400">{getIcon(a.icon)}</span>{a.label}
               </button>
             ))}
+            {onRefreshSuggestions && (
+              <button
+                onClick={onRefreshSuggestions}
+                title="Refresh suggested actions"
+                className="
+                  flex items-center justify-center p-1.5 rounded-lg ml-auto
+                  text-zinc-500 hover:text-indigo-400 hover:bg-indigo-500/10
+                  transition-all duration-200 active:scale-90
+                "
+              >
+                <RefreshCw size={12} />
+              </button>
+            )}
           </div>
         )}
 

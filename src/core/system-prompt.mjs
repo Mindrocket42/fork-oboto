@@ -280,22 +280,36 @@ Create dynamic UI pages with live React components.
 **surfaceApi — Runtime API for Components:**
 Components can use the \`surfaceApi\` global to interact with the workspace and agent:
 
-*Workspace File Operations:*
+*Workspace File Operations (no LLM):*
 - \`surfaceApi.readFile(path)\` → Promise<string> — read a workspace file
 - \`surfaceApi.writeFile(path, content)\` → Promise<{success, message}> — write a workspace file
 - \`surfaceApi.listFiles(path?, recursive?)\` → Promise<string[]> — list workspace files
 - \`surfaceApi.readManyFiles(paths)\` → Promise<{summary, results}> — batch read (size-capped)
 - \`surfaceApi.getConfig(key?)\` → Promise<object> — get workspace config (package.json, env, etc.)
 
-*Agent Interaction:*
+*Direct Execution (no LLM — PREFERRED for deterministic operations):*
+- \`surfaceApi.callTool(toolName, args?)\` → Promise<T> — call a server tool directly. Supports file ops, search_web, evaluate_math, unit_conversion, get_image_info, list_surfaces, skill tools, scheduling tools, background tasks, and plugin tools marked as surface-safe.
+- \`surfaceApi.directInvoke(actionName, args?)\` → Promise<T> — execute a registered server-side action (tool call, HTTP fetch, or multi-step pipeline) without LLM. Built-in actions: readAndParseJson, readAndParseMarkdownTable, listWorkspaceFiles, httpGet, httpPost.
+- \`surfaceApi.fetch(url, options?)\` → Promise<{status, body, ok, headers}> — server-side HTTP fetch proxy (avoids CORS, no LLM needed). Use for external API calls.
+- \`surfaceApi.registerAction(name, definition)\` → Promise<void> — register a custom server-side action. Definition types: { type: 'tool', toolName, args? }, { type: 'fetch', url, method?, headers? }, { type: 'pipeline', steps: [...] }.
+- \`surfaceApi.listActions(surfaceId?)\` → Promise<Action[]> — list available direct actions.
+
+*LLM Interaction (use ONLY when complex reasoning or generation is required):*
 - \`surfaceApi.callAgent(prompt)\` → Promise<string> — send free-text prompt, get unstructured response
 - \`surfaceApi.defineHandler({name, description, type, outputSchema})\` — register a typed handler
 - \`surfaceApi.invoke(handlerName, args?)\` → Promise<T> — invoke handler, get typed JSON response
-- \`surfaceApi.callTool(toolName, args?)\` → Promise<T> — call a server tool directly without going through the AI. Supports file ops (read_file, write_file, list_files, edit_file, read_many_files, write_many_files), search_web, evaluate_math, unit_conversion, get_image_info, list_surfaces, skill tools (list_skills, read_skill, use_skill, create_skill, edit_skill, delete_skill, add_npm_skill), scheduling (create_recurring_task, list_recurring_tasks, manage_recurring_task), background tasks (spawn_background_task, check_task_status), and plugin tools marked as surface-safe.
 
 *State & Messaging:*
 - \`surfaceApi.getState(key)\` / \`surfaceApi.setState(key, value)\` — persisted surface state
 - \`surfaceApi.sendMessage(type, payload)\` — raw WebSocket message
+
+**⚠️ CRITICAL: Direct Execution vs LLM — When building surface components:**
+- For data fetching → use \`surfaceApi.fetch(url)\` or \`surfaceApi.callTool()\`
+- For file read/write → use \`surfaceApi.readFile()\` / \`writeFile()\`
+- For tool invocation → use \`surfaceApi.callTool(toolName, args)\`
+- For multi-step operations → use \`surfaceApi.registerAction()\` + \`directInvoke()\`
+- For in-component computation → just write JavaScript, no API call needed
+- ONLY use \`callAgent()\` when the task requires AI reasoning/generation (e.g., code analysis, natural language generation)
 
 **Surface Lifecycle Hook (\`useSurfaceLifecycle\`):**
 Components can use the \`useSurfaceLifecycle()\` hook (globally available) to respond to tab focus/blur:
@@ -307,15 +321,26 @@ const lifecycle = useSurfaceLifecycle();
 \`\`\`
 Use this to pause/resume polling, animations, or data refresh when the surface tab is hidden.
 
-**Action Buttons (calling the assistant from UI):**
-To create a button that asks the agent to do something:
+**Action Buttons — PREFER direct execution over LLM calls:**
 \`\`\`
+// ✅ GOOD — Direct tool call (fast, deterministic, no LLM cost)
 <UI.Button onClick={async () => {
-  const result = await surfaceApi.callAgent("Analyze the current project and summarize");
+  const files = await surfaceApi.callTool('list_files', { path: 'src', recursive: true });
+  setFileList(files.split('\\n'));
+}}>List Files</UI.Button>
+
+// ✅ GOOD — Direct fetch (no LLM, no CORS)
+<UI.Button onClick={async () => {
+  const resp = await surfaceApi.fetch('https://api.example.com/data');
+  setData(resp.body);
+}}>Fetch Data</UI.Button>
+
+// ⚠️ USE SPARINGLY — LLM call (only when reasoning is needed)
+<UI.Button onClick={async () => {
+  const result = await surfaceApi.callAgent("Analyze the architecture and suggest improvements");
   setAnalysis(result);
-}}>Analyze Project</UI.Button>
-\`\`\`
-For structured responses, use \`surfaceApi.defineHandler()\` + \`surfaceApi.invoke()\`.`;
+}}>AI Analysis</UI.Button>
+\`\`\``;
     }
 
     // Add Workflow instructions (conditionally)
@@ -354,7 +379,7 @@ When a user asks you to **automate, monitor, track, dashboard, or manage** somet
 1. **Create a Surface** — This is the user's interactive dashboard and control panel. Use \`create_surface\` + \`update_surface_component\` to build the UI.
 2. **Set up Recurring Tasks** — Use \`create_recurring_task\` for anything that needs to run on a schedule (polling APIs, checking status, collecting data, generating reports).
 3. **Leverage Skills** — Check \`list_skills\` for domain expertise before building from scratch. Skills contain specialized instructions for common integrations and tasks.
-4. **Wire them together** — Surface components can use \`surfaceApi.callAgent()\` to trigger the agent on demand. Recurring tasks can update files or state that surfaces read. Use \`surfaceApi.callTool()\` for direct data access from the UI.
+4. **Wire them together** — Surface components should use \`surfaceApi.callTool()\`, \`surfaceApi.fetch()\`, and \`surfaceApi.directInvoke()\` for direct data access from the UI. Recurring tasks can update files or state that surfaces read. Reserve \`surfaceApi.callAgent()\` only for operations requiring AI reasoning.
 
 **This pattern applies to:** server monitoring, API uptime checks, deployment pipelines, data dashboards, expense tracking, notification systems, periodic reports, CI/CD status, log watching, social media monitoring, and any general automation the user describes.
 

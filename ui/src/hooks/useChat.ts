@@ -577,6 +577,10 @@ export const useChat = () => {
     wsService.listConversations();
   };
 
+  const refreshNextSteps = () => {
+    wsService.refreshNextSteps();
+  };
+
   return {
     messages,
     isWorking,
@@ -588,6 +592,7 @@ export const useChat = () => {
     projectStatus,
     setCwd,
     nextSteps,
+    refreshNextSteps,
     settings,
     updateSettings: (s: AgentSettings) => wsService.updateSettings(s),
     fileTree,

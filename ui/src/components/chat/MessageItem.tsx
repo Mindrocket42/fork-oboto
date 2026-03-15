@@ -73,6 +73,40 @@ function getAttachmentIcon(filename: string) {
   return <File size={14} className="text-zinc-400" />;
 }
 
+/** Parse <tool_call> XML blocks from message content, returning extracted calls and cleaned text */
+interface ParsedToolCall {
+  name: string;
+  args: unknown;
+}
+
+function extractToolCalls(content: string): { toolCalls: ParsedToolCall[]; cleanContent: string } {
+  const toolCalls: ParsedToolCall[] = [];
+  // Match <tool_call> ... </tool_call> blocks (greedy-safe via lazy .*?)
+  const toolCallRegex = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
+  let cleanContent = content;
+  let match: RegExpExecArray | null;
+
+  while ((match = toolCallRegex.exec(content)) !== null) {
+    const raw = match[1].trim();
+    try {
+      const parsed = JSON.parse(raw);
+      toolCalls.push({
+        name: parsed.name || 'unknown',
+        args: parsed.arguments ?? parsed.args ?? {},
+      });
+    } catch {
+      // Not valid JSON — try as-is so we still show something
+      toolCalls.push({ name: 'unknown', args: { raw } });
+    }
+  }
+
+  if (toolCalls.length > 0) {
+    cleanContent = content.replace(toolCallRegex, '').trim();
+  }
+
+  return { toolCalls, cleanContent };
+}
+
 /** Parse user message content and render [attached: filename] tags as styled chips */
 function renderUserContentWithAttachments(content: string) {
   const attachRegex = /\[attached:\s*(.+?)\]/g;
@@ -248,15 +282,40 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, actions, userLabel =
                   </div>
                 )}
 
-                {/* Then render the text content */}
-                {message.content && message.content.trim() !== '' && (
-                  <>
-                    {message.toolCalls && message.toolCalls.length > 0 && (
-                      <div className="border-t border-zinc-800/30" />
-                    )}
-                    <MarkdownRenderer content={message.content} />
-                  </>
-                )}
+                {/* Then render the text content (with inline <tool_call> tags extracted) */}
+                {message.content && message.content.trim() !== '' && (() => {
+                  const { toolCalls: inlineToolCalls, cleanContent } = extractToolCalls(message.content);
+                  const hasExistingToolCalls = (message.toolCalls && message.toolCalls.length > 0) || inlineToolCalls.length > 0;
+                  return (
+                    <>
+                      {/* Render inline tool calls extracted from content text */}
+                      {inlineToolCalls.length > 0 && (
+                        <div className="space-y-2">
+                          {!(message.toolCalls && message.toolCalls.length > 0) && (
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-2">
+                              <Terminal size={10} /> Tool Calls
+                            </div>
+                          )}
+                          {inlineToolCalls.map((tc, idx) => (
+                            <ToolCall
+                              key={`inline-tc-${idx}`}
+                              toolName={tc.name}
+                              args={tc.args}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {cleanContent && cleanContent.trim() !== '' && (
+                        <>
+                          {hasExistingToolCalls && (
+                            <div className="border-t border-zinc-800/30" />
+                          )}
+                          <MarkdownRenderer content={cleanContent} />
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>

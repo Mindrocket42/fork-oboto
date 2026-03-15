@@ -17,6 +17,7 @@ export { SURFACE_TOOLS } from './definitions/surface-tools.mjs';
 export { SKILL_TOOLS } from './definitions/skill-tools.mjs';
 export { WORKSPACE_TASK_TOOLS } from './definitions/workspace-task-tools.mjs';
 export { RUN_TOOL } from './definitions/run-tool.mjs';
+export { PLUGIN_TOOLS } from './definitions/plugin-tools.mjs';
 
 import { CORE_TOOLS } from './definitions/core-tools.mjs';
 import { CUSTOM_TOOL_MANAGEMENT, WORKSPACE_TOOLS } from './definitions/custom-tool-management.mjs';
@@ -30,6 +31,7 @@ import { SURFACE_TOOLS } from './definitions/surface-tools.mjs';
 import { SKILL_TOOLS } from './definitions/skill-tools.mjs';
 import { WORKSPACE_TASK_TOOLS } from './definitions/workspace-task-tools.mjs';
 import { RUN_TOOL } from './definitions/run-tool.mjs';
+import { PLUGIN_TOOLS } from './definitions/plugin-tools.mjs';
 
 export const TOOLS = [
     ...RUN_TOOL,
@@ -44,5 +46,6 @@ export const TOOLS = [
     ...ASYNC_TASK_TOOLS,
     ...SURFACE_TOOLS,
     ...SKILL_TOOLS,
-    ...WORKSPACE_TASK_TOOLS
+    ...WORKSPACE_TASK_TOOLS,
+    ...PLUGIN_TOOLS
 ];

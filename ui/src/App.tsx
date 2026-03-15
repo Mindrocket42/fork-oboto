@@ -38,6 +38,7 @@ import { useTaskManager } from './hooks/useTaskManager';
 import { useHelp } from './hooks/useHelp';
 import { useTour } from './hooks/useTour';
 import { useHelpTracking } from './hooks/useHelpTracking';
+import { usePersona } from './hooks/usePersona';
 
 import { useTabManager } from './hooks/useTabManager';
 import { useWorkspaceState } from './hooks/useWorkspaceState';
@@ -51,8 +52,8 @@ import { globalActions, inlineCommands } from './constants/commands';
 function App() {
   // Core Domain Hooks
   const { 
-    messages, isWorking, workspaceSwitching, queueCount, send, stop, projectStatus, setCwd, nextSteps, 
-    settings, updateSettings, fileTree, deleteMessage, editAndRerun, rerunFromUser, 
+    messages, isWorking, workspaceSwitching, queueCount, send, stop, projectStatus, setCwd, nextSteps,
+    refreshNextSteps, settings, updateSettings, fileTree, deleteMessage, editAndRerun, rerunFromUser, 
     regenerateFromAI, activityLog, allLogs, logPanelOpen, setLogPanelOpen, clearAllLogs, 
     isConnected, openClawStatus, configureOpenClaw, deployOpenClaw, confirmationRequest, 
     respondToConfirmation, selectedModel, setSelectedModel, conversations, activeConversation, 
@@ -83,6 +84,12 @@ function App() {
   // Task Manager for running task count
   const { tasks } = useTaskManager();
   const runningTaskCount = tasks.filter(t => t.status === 'running').length;
+
+  // Persona Hook
+  const {
+    personas, activePersonaId,
+    switchPersona, createPersona,
+  } = usePersona();
 
   // Help System Hooks
   const help = useHelp();
@@ -561,6 +568,7 @@ function App() {
                 onStop={stop}
                 commands={inlineCommands}
                 suggestions={nextSteps}
+                onRefreshSuggestions={refreshNextSteps}
                 inputRef={chatInputRef}
                 availableModels={filteredModels}
                 selectedModel={selectedModel}
@@ -595,6 +603,10 @@ function App() {
           currentTheme={themeState.currentTheme}
           availableThemes={themeState.availableThemes}
           onThemeChange={setTheme}
+          personas={personas}
+          activePersonaId={activePersonaId}
+          onSwitchPersona={switchPersona}
+          onCreatePersona={createPersona}
         />
       </div>
 

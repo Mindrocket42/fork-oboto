@@ -50,6 +50,7 @@
       "import": "./src/plugins/index.mjs",
       "default": "./src/plugins/index.mjs"
     },
+    "./types": "./src/types/shared.mjs",
     "./package.json": "./package.json"
   },
   "typesVersions": {

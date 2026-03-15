@@ -15,11 +15,30 @@ let consoleStylerLogSpy;
 // ─── detectProvider ──────────────────────────────────────────────────────
 
 describe('detectProvider', () => {
+    const savedEnv = {};
+
     beforeEach(() => {
         consoleStylerLogSpy = jest.spyOn(consoleStyler, 'log').mockImplementation(() => {});
+        // Save and clear env vars that affect provider detection
+        savedEnv.AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
+        savedEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+        savedEnv.VERTEX_PROJECT_ID = process.env.VERTEX_PROJECT_ID;
+        savedEnv.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT;
+        delete process.env.AZURE_OPENAI_ENDPOINT;
+        delete process.env.ANTHROPIC_API_KEY;
+        delete process.env.VERTEX_PROJECT_ID;
+        delete process.env.GOOGLE_CLOUD_PROJECT;
     });
     afterEach(() => {
         consoleStylerLogSpy.mockRestore();
+        // Restore original env vars
+        for (const [key, val] of Object.entries(savedEnv)) {
+            if (val === undefined) {
+                delete process.env[key];
+            } else {
+                process.env[key] = val;
+            }
+        }
     });
 
     test('returns "gemini" for "gemini-2.0-flash"', () => {
@@ -39,48 +58,26 @@ describe('detectProvider', () => {
     });
 
     describe('claude-* routing with Vertex env vars', () => {
-        const savedEnv = {};
-
-        beforeEach(() => {
-            savedEnv.VERTEX_PROJECT_ID = process.env.VERTEX_PROJECT_ID;
-            savedEnv.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT;
-        });
-
-        afterEach(() => {
-            // Restore original env vars (may have been undefined)
-            if (savedEnv.VERTEX_PROJECT_ID === undefined) {
-                delete process.env.VERTEX_PROJECT_ID;
-            } else {
-                process.env.VERTEX_PROJECT_ID = savedEnv.VERTEX_PROJECT_ID;
-            }
-            if (savedEnv.GOOGLE_CLOUD_PROJECT === undefined) {
-                delete process.env.GOOGLE_CLOUD_PROJECT;
-            } else {
-                process.env.GOOGLE_CLOUD_PROJECT = savedEnv.GOOGLE_CLOUD_PROJECT;
-            }
-        });
-
         test('returns "anthropic" for "claude-3-opus" when VERTEX_PROJECT_ID is set', () => {
             process.env.VERTEX_PROJECT_ID = 'my-project';
-            delete process.env.GOOGLE_CLOUD_PROJECT;
             expect(detectProvider('claude-3-opus')).toBe(AI_PROVIDERS.ANTHROPIC);
         });
 
         test('returns "anthropic" for "claude-3-haiku" when GOOGLE_CLOUD_PROJECT is set', () => {
-            delete process.env.VERTEX_PROJECT_ID;
             process.env.GOOGLE_CLOUD_PROJECT = 'my-project';
             expect(detectProvider('claude-3-haiku')).toBe(AI_PROVIDERS.ANTHROPIC);
         });
 
-        test('returns "openai" for "claude-3-opus" without Vertex env vars', () => {
-            delete process.env.VERTEX_PROJECT_ID;
-            delete process.env.GOOGLE_CLOUD_PROJECT;
+        test('returns "anthropic_direct" for "claude-3-opus" with ANTHROPIC_API_KEY', () => {
+            process.env.ANTHROPIC_API_KEY = 'sk-test';
+            expect(detectProvider('claude-3-opus')).toBe(AI_PROVIDERS.ANTHROPIC_DIRECT);
+        });
+
+        test('returns "openai" for "claude-3-opus" without Vertex or Anthropic env vars', () => {
             expect(detectProvider('claude-3-opus')).toBe(AI_PROVIDERS.OPENAI);
         });
 
-        test('returns "openai" for "claude-3-haiku" without Vertex env vars', () => {
-            delete process.env.VERTEX_PROJECT_ID;
-            delete process.env.GOOGLE_CLOUD_PROJECT;
+        test('returns "openai" for "claude-3-haiku" without Vertex or Anthropic env vars', () => {
             expect(detectProvider('claude-3-haiku')).toBe(AI_PROVIDERS.OPENAI);
         });
     });
@@ -89,8 +86,8 @@ describe('detectProvider', () => {
         expect(detectProvider('llama-3')).toBe(AI_PROVIDERS.LMSTUDIO);
     });
 
-    test('returns "lmstudio" for "mistral-7b" (unknown model → fallback)', () => {
-        expect(detectProvider('mistral-7b')).toBe(AI_PROVIDERS.LMSTUDIO);
+    test('returns "mistral" for "mistral-7b" (Mistral model prefix)', () => {
+        expect(detectProvider('mistral-7b')).toBe(AI_PROVIDERS.MISTRAL);
     });
 });
 

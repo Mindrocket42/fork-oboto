@@ -9,6 +9,7 @@ import { CloudConversationSync } from './cloud-conversation-sync.mjs';
 import { CloudAgent } from './cloud-agent.mjs';
 import { CloudRealtime } from './cloud-realtime.mjs';
 import { CloudFileSync } from './cloud-file-sync.mjs';
+import { SyncEngine, LastWriteWinsStrategy } from './sync/index.mjs';
 import { consoleStyler } from '../ui/console-styler.mjs';
 
 /**
@@ -52,6 +53,9 @@ export class CloudSync {
         /** @type {CloudFileSync|null} */
         this.fileSync = null;
 
+        /** @type {SyncEngine|null} Event-driven sync engine (replaces timer) */
+        this.syncEngine = null;
+
         /** @type {string|null} Local working directory */
         this._workingDir = null;
 
@@ -92,7 +96,7 @@ export class CloudSync {
         await this.auth.login(email, password);
         this._createSubModules();
         await this._tryLoadWorkspaceLink();
-        this._startAutoSync();
+        await this._startAutoSync();
     }
 
     /**
@@ -105,7 +109,7 @@ export class CloudSync {
         if (success) {
             this._createSubModules();
             await this._tryLoadWorkspaceLink();
-            this._startAutoSync();
+            await this._startAutoSync();
         }
         return success;
     }
@@ -205,13 +209,28 @@ export class CloudSync {
      */
     getStatus() {
         const linkData = this.workspaceSync?.getLinkData();
+        const engineStatus = this.syncEngine ? this.syncEngine.getStatus() : {};
+
+        // Derive top-level sync state from the engine
+        let syncState = 'idle';
+        if (this.syncEngine) {
+            const states = Object.values(engineStatus);
+            if (states.some(s => s.state === 'error')) syncState = 'error';
+            else if (states.some(s => s.state === 'conflict')) syncState = 'conflict';
+            else if (states.some(s => s.state === 'syncing')) syncState = 'syncing';
+            else if (states.some(s => s.lastSyncAt > 0)) syncState = 'synced';
+        } else if (this._syncTimer) {
+            syncState = 'synced';
+        }
+
         return {
             configured: this.isConfigured(),
             ...(this.auth ? this.auth.getSnapshot() : { loggedIn: false, user: null, profile: null, org: null, role: null }),
             linkedWorkspace: linkData
                 ? { id: linkData.cloudWorkspaceId, name: linkData.cloudWorkspaceName }
                 : null,
-            syncState: this._syncTimer ? 'synced' : 'idle',
+            syncState,
+            syncEngineStatus: engineStatus,
         };
     }
 
@@ -225,7 +244,7 @@ export class CloudSync {
     async linkWorkspace(cloudWorkspaceId, cloudWorkspaceName = '') {
         if (!this.workspaceSync || !this._workingDir) return;
         await this.workspaceSync.link(this._workingDir, cloudWorkspaceId, cloudWorkspaceName);
-        this._startAutoSync();
+        await this._startAutoSync();
     }
 
     /**
@@ -239,12 +258,29 @@ export class CloudSync {
 
     /**
      * Push local workspace state to the linked cloud workspace.
+     * When the SyncEngine is active, this also caches the local state for
+     * the workspace-state provider and notifies the engine of the change.
      * @param {object} localState — from WorkspaceManager.getWorkspaceContext()
      */
     async pushWorkspaceState(localState) {
         if (!this.workspaceSync) return null;
         const wsId = this.workspaceSync.getLinkedWorkspaceId();
         if (!wsId) return null;
+
+        // Cache for the SyncEngine provider
+        this._lastLocalState = localState;
+
+        // If SyncEngine is active, notify it of the local change and let it
+        // handle the push with conflict resolution.  Otherwise fall back to
+        // the direct push (preserving pre-SyncEngine behaviour).
+        if (this.syncEngine) {
+            this.syncEngine.notifyLocalChange('workspace-state', {
+                field: 'workspace-state',
+                timestamp: Date.now(),
+            });
+            return null; // sync is debounced; result comes via events
+        }
+
         const result = await this.workspaceSync.push(wsId, localState);
         if (this._workingDir) await this.workspaceSync.saveLinkData(this._workingDir);
         return result;
@@ -444,9 +480,9 @@ export class CloudSync {
         });
     }
 
-    // ── Auto-sync Timer ───────────────────────────────────────────────────
+    // ── Auto-sync (SyncEngine-backed) ───────────────────────────────────
 
-    _startAutoSync() {
+    async _startAutoSync() {
         this._stopAutoSync();
 
         const wsId = this.workspaceSync?.getLinkedWorkspaceId();
@@ -481,26 +517,99 @@ export class CloudSync {
                 });
         }
 
-        const interval = this._config?.syncInterval || 30000;
+        // ── Create and start SyncEngine ──────────────────────────────────
+        const debounceMs = this._config?.syncDebounceMs || 2000;
 
+        this.syncEngine = new SyncEngine({
+            eventBus: this.eventBus,
+            client: this.client,
+            debounceMs,
+            strategies: {
+                'workspace-state': new LastWriteWinsStrategy(),
+            },
+        });
+
+        // Register a workspace-state provider that bridges to CloudWorkspaceSync
+        const self = this;
+        this.syncEngine.registerProvider('workspace-state', {
+            async getLocal() {
+                // Return cached local state — callers push via pushWorkspaceState()
+                return self._lastLocalState || {};
+            },
+            async getRemote() {
+                if (!self.workspaceSync) return {};
+                const state = await self.workspaceSync.pull(wsId);
+                return state || {};
+            },
+            async pushLocal(data) {
+                if (!self.workspaceSync) return;
+                await self.workspaceSync.push(wsId, data);
+                if (self._workingDir) await self.workspaceSync.saveLinkData(self._workingDir);
+            },
+            async applyRemote(data) {
+                // Emit event so other modules can react to remote state
+                if (self.eventBus) {
+                    self.eventBus.emitTyped('cloud:workspace:pulled', {
+                        workspaceId: wsId,
+                        state: data,
+                    });
+                }
+            },
+            getVersion(local, remote) {
+                const data = local || remote || {};
+                return data.updated_at || data.updatedAt || '0';
+            },
+        });
+
+        // Pre-populate local state to prevent the first sync from pushing empty data
+        if (this.workspaceSync) {
+            try {
+                const currentState = await this.workspaceSync.pull(wsId);
+                if (currentState) {
+                    this._lastLocalState = currentState;
+                }
+            } catch (e) {
+                consoleStyler.log('cloud', `Could not pre-populate local state: ${e.message}`);
+            }
+        }
+
+        this.syncEngine.start();
+
+        // Perform initial sync only if local state was pre-populated.
+        // Without local state the provider returns {} which could overwrite
+        // valid remote data under a last-write-wins strategy.
+        if (this._lastLocalState) {
+            this.syncEngine.sync('workspace-state').catch(err => {
+                consoleStyler.log('cloud', `Initial sync failed: ${err.message}`);
+            });
+        } else {
+            consoleStyler.log('cloud', 'Skipping initial sync — no local state available');
+        }
+
+        // Also keep a lightweight fallback timer for resilience.
+        // This catches edge cases where events might be missed.
+        const fallbackInterval = this._config?.syncInterval || 30000;
         this._syncTimer = setInterval(async () => {
             try {
-                await this.pullWorkspaceState();
-                if (this.eventBus) {
-                    this.eventBus.emitTyped('cloud:sync-status', { state: 'synced' });
+                if (this.syncEngine) {
+                    await this.syncEngine.sync('workspace-state');
                 }
             } catch (err) {
                 if (this.eventBus) {
                     this.eventBus.emitTyped('cloud:sync-status', { state: 'error', error: err.message });
                 }
             }
-        }, interval);
+        }, fallbackInterval);
 
         // Don't keep the process alive for sync
         if (this._syncTimer.unref) this._syncTimer.unref();
     }
 
     _stopAutoSync() {
+        if (this.syncEngine) {
+            this.syncEngine.stop();
+            this.syncEngine = null;
+        }
         if (this._syncTimer) {
             clearInterval(this._syncTimer);
             this._syncTimer = null;

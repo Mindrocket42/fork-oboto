@@ -74,16 +74,30 @@ export function useTabManager(
     });
     
     const unsubOpen = wsService.on('surface-opened', (payload: unknown) => {
-      const { surfaceId, surface } = payload as { surfaceId: string, surface: SurfaceMeta };
+      const { surfaceId, surface, params } = payload as {
+        surfaceId: string;
+        surface: SurfaceMeta;
+        params?: Record<string, unknown> | null;
+      };
       const tabId = `surface:${surfaceId}`;
       
       setTabs(prev => {
-        if (prev.find(t => t.id === tabId)) return prev;
+        const existing = prev.find(t => t.id === tabId);
+        if (existing) {
+          // Tab already exists — update activationParams if provided
+          if (params && Object.keys(params).length > 0) {
+            return prev.map(t =>
+              t.id === tabId ? { ...t, activationParams: params } : t
+            );
+          }
+          return prev;
+        }
         return [...prev, {
           id: tabId,
           label: surface ? surface.name : 'Surface',
           type: 'surface',
-          surfaceId: surfaceId
+          surfaceId: surfaceId,
+          ...(params && Object.keys(params).length > 0 ? { activationParams: params } : {}),
         }];
       });
       setActiveTabId(tabId);

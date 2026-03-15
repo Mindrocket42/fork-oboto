@@ -139,7 +139,7 @@ describe('AiManLLMProvider', () => {
 
     expect(response.content).toBe('result text');
     expect(response.toolCalls).toEqual([
-      { id: 'tc1', name: 'read_file', arguments: { path: '/tmp/x' } },
+      { id: 'tc1', name: 'read_file', arguments: '{"path":"/tmp/x"}' },
     ]);
     expect(response.usage).toEqual({
       promptTokens: 10,
@@ -148,7 +148,7 @@ describe('AiManLLMProvider', () => {
     });
   });
 
-  test('chat() parses JSON string tool arguments', async () => {
+  test('chat() preserves JSON string tool arguments', async () => {
     callProvider.mockResolvedValue({
       choices: [
         {
@@ -173,10 +173,8 @@ describe('AiManLLMProvider', () => {
       messages: [{ role: 'user', content: 'write' }],
     });
 
-    expect(response.toolCalls[0].arguments).toEqual({
-      path: '/tmp/y',
-      content: 'hello',
-    });
+    // arguments should remain as a JSON string per lmscript LLMResponse interface
+    expect(response.toolCalls[0].arguments).toBe('{"path":"/tmp/y","content":"hello"}');
   });
 
   test('chat() uses circuit breaker when configured', async () => {

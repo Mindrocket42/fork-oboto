@@ -170,12 +170,29 @@ These will cause React Error #130 if used:
 - `useState`, `useEffect`, `useRef`, `useCallback`, `useMemo`
 
 ### Surface API
-- `surfaceApi.readFile(path)` → Promise<string>
-- `surfaceApi.writeFile(path, content)` → Promise<{success, message}>
-- `surfaceApi.listFiles(path?, recursive?)` → Promise<string[]>
-- `surfaceApi.callAgent(prompt)` → Promise<string>
-- `surfaceApi.callTool(toolName, args?)` → Promise<T>
-- `surfaceApi.getState(key)` / `surfaceApi.setState(key, value)`
+
+#### File Operations (no LLM)
+- `surfaceApi.readFile(path)` → Promise\<string\>
+- `surfaceApi.writeFile(path, content)` → Promise\<{success, message}\>
+- `surfaceApi.listFiles(path?, recursive?)` → Promise\<string[]\>
+- `surfaceApi.readManyFiles(paths)` → Promise\<{summary, results}\>
+- `surfaceApi.getConfig(key?)` → Promise\<object\>
+
+#### Direct Execution (no LLM — preferred for deterministic operations)
+- `surfaceApi.callTool(toolName, args?)` → Promise\<T\> — Call a whitelisted tool
+- `surfaceApi.directInvoke(actionName, args?)` → Promise\<T\> — Execute a registered direct action
+- `surfaceApi.fetch(url, options?)` → Promise\<{status, body, ok, ...}\> — Server-side HTTP fetch
+- `surfaceApi.registerAction(name, definition)` → Promise\<void\> — Register a direct action
+- `surfaceApi.listActions(surfaceId?)` → Promise\<Action[]\> — List available direct actions
+
+#### LLM Interaction (use only when reasoning is needed)
+- `surfaceApi.callAgent(prompt)` → Promise\<string\> — Send prompt to AI
+- `surfaceApi.invoke(handlerName, args?)` → Promise\<T\> — Invoke a structured handler via AI
+- `surfaceApi.defineHandler(definition)` → void — Register a typed handler for AI
+
+#### State Management
+- `surfaceApi.getState(key)` / `surfaceApi.setState(key, value)` — Persisted surface state
+- `surfaceApi.sendMessage(type, payload)` — Send raw WebSocket message
 
 ### Lifecycle Hook
 ```jsx

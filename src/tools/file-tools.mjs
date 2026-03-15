@@ -40,6 +40,14 @@ export class FileTools {
                     `Use: list_files({ path: "${dirPath}" }) to see available files.`;
             }
             
+            // Check if path is a directory — guide to list_files
+            const stat = await fs.promises.stat(resolvedPath);
+            if (stat.isDirectory()) {
+                return `[error] read_file: '${filePath}' is a directory, not a file. ` +
+                    `Use: list_files({ path: "${filePath}" }) to see its contents, ` +
+                    `or ls ${filePath} via the run tool.`;
+            }
+            
             // Check if file is binary before reading
             const ext = path.extname(filePath).toLowerCase();
             const binaryExts = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp',

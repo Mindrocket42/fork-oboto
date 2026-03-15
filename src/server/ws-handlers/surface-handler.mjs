@@ -1,13 +1,46 @@
 import { consoleStyler } from '../../ui/console-styler.mjs';
 import { wsSend, wsSendError, wsHandler, requireService } from '../../lib/ws-utils.mjs';
+import { DirectActionExecutor } from '../../surfaces/direct-action-executor.mjs';
 
 /**
  * Handles all surface-related message types:
  * get-surfaces, get-surface, create-surface, update-surface, delete-surface,
  * pin-surface, rename-surface, duplicate-surface, remove-surface-component,
  * update-surface-layout, surface-agent-request, surface-handler-invoke,
- * surface-compilation-error, surface-get-state, surface-set-state, screenshot-captured
+ * surface-compilation-error, surface-get-state, surface-set-state, screenshot-captured,
+ * surface-direct-invoke, surface-fetch, surface-register-action, surface-list-actions
  */
+
+/**
+ * Per-workspace DirectActionExecutor cache.
+ *
+ * Uses a WeakMap keyed by `toolExecutor` so that each workspace gets its own
+ * isolated executor — actions registered by one workspace never leak to another.
+ * When a toolExecutor is garbage-collected (workspace closed), its executor is
+ * automatically released.
+ *
+ * NOTE: Dynamically registered actions are scoped to the executor instance for
+ * a given toolExecutor. Surface components should re-register their actions on
+ * mount if they depend on custom registrations.
+ *
+ * @type {WeakMap<object, DirectActionExecutor>}
+ */
+const _executorsByWorkspace = new WeakMap();
+
+function _getDirectActionExecutor(ctx) {
+    const toolExecutor = ctx.assistant?.toolExecutor;
+    if (!toolExecutor) {
+        throw new Error('Cannot create DirectActionExecutor: no toolExecutor available');
+    }
+
+    let executor = _executorsByWorkspace.get(toolExecutor);
+    if (!executor) {
+        const surfaceManager = toolExecutor.surfaceManager;
+        executor = new DirectActionExecutor({ toolExecutor, surfaceManager });
+        _executorsByWorkspace.set(toolExecutor, executor);
+    }
+    return executor;
+}
 
 const SM = 'toolExecutor.surfaceManager';
 const SM_LABEL = 'Surface manager';
@@ -194,7 +227,7 @@ const _autoFixInProgress = new Set();
 
 async function handleSurfaceAutoFix(data, ctx) {
     const { ws, assistant, eventBus } = ctx;
-    const { surfaceId, componentName, errorType, error, source, attempt } = data.payload;
+    const { surfaceId, componentName, errorType, error, source, componentProps, attempt } = data.payload;
 
     const fixKey = `${surfaceId}:${componentName}`;
     if (_autoFixInProgress.has(fixKey)) {
@@ -209,6 +242,32 @@ async function handleSurfaceAutoFix(data, ctx) {
         const surfaceManager = assistant.toolExecutor?.surfaceManager;
         if (!surfaceManager) throw new Error('SurfaceManager not available');
 
+        // Resolve source: use what the client sent, or load from surfaceManager as fallback
+        let resolvedSource = source;
+        if (!resolvedSource) {
+            try {
+                resolvedSource = await surfaceManager.getComponentSource(surfaceId, componentName);
+            } catch (_) { /* keep null */ }
+        }
+
+        // Build optional props context section for data-driven errors
+        let propsSection = '';
+        if (componentProps) {
+            propsSection = `\nCOMPONENT PROPS (data the component received at crash time):\n\`\`\`json\n${componentProps}\n\`\`\`\n`;
+        }
+
+        // Load surface state if available (components may depend on surface-level state)
+        let stateSection = '';
+        try {
+            const surface = await surfaceManager.getSurface(surfaceId);
+            if (surface?.state && Object.keys(surface.state).length > 0) {
+                const stateStr = JSON.stringify(surface.state, null, 2);
+                if (stateStr.length < 4096) {
+                    stateSection = `\nSURFACE STATE (shared state available via useSurfaceState):\n\`\`\`json\n${stateStr}\n\`\`\`\n`;
+                }
+            }
+        } catch (_) { /* state unavailable, proceed without it */ }
+
         const fixPrompt = `[Surface Auto-Fix Request]
 Surface ID: ${surfaceId}
 Component: ${componentName}
@@ -220,9 +279,9 @@ ${error}
 
 BROKEN SOURCE CODE:
 \`\`\`jsx
-${source || '(source unavailable)'}
+${resolvedSource || '(source unavailable)'}
 \`\`\`
-
+${propsSection}${stateSection}
 **AVAILABLE UI COMPONENTS (use ONLY these):**
 - Layout: UI.Card, UI.CardHeader, UI.CardTitle, UI.CardDescription, UI.CardContent, UI.CardFooter, UI.ScrollArea, UI.Separator
 - Primitives: UI.Button, UI.Input, UI.Textarea, UI.Label, UI.Checkbox, UI.Switch, UI.Slider
@@ -251,11 +310,36 @@ Rules:
 2. Do NOT add imports — all React hooks and UI.* components are globally available.
 3. Export a default function component.
 4. Use Tailwind CSS for styling.
-5. If the error is in data handling, add null checks and fallbacks.
+5. If the error is in data handling, add null checks and fallbacks (e.g. optional chaining, default values, Array.isArray() guards).
 6. If using an icon that doesn't exist, replace with a similar one from the list above.
-7. Call \`update_surface_component\` with the fixed code.`;
+7. If props data is undefined or missing expected fields, add defensive guards.
+8. Call \`update_surface_component\` with the fixed code.`;
+
+        // Snapshot the component's updatedAt before the fix attempt
+        let preFixTimestamp;
+        try {
+            const surface = await surfaceManager.getSurface(surfaceId);
+            const comp = surface?.components?.find(c => c.name === componentName);
+            preFixTimestamp = comp?.updatedAt;
+        } catch (_) { /* proceed anyway */ }
 
         await assistant.run(fixPrompt, { isRetry: false });
+
+        // Verify the component was actually updated (the AI may have responded
+        // without calling update_surface_component, leaving the error in place)
+        try {
+            const surfaceAfter = await surfaceManager.getSurface(surfaceId);
+            const compAfter = surfaceAfter?.components?.find(c => c.name === componentName);
+            if (!compAfter || (preFixTimestamp && compAfter.updatedAt === preFixTimestamp)) {
+                consoleStyler.log('warning', `Auto-fix for ${componentName}: AI did not update the component — notifying client`);
+                wsSend(ws, 'surface-auto-fix-failed', {
+                    surfaceId, componentName, attempt,
+                    error: 'AI completed but did not produce a fix. Try again or fix manually in the source editor.'
+                });
+                return;
+            }
+        } catch (_) { /* verification failed — assume success, client has timeout fallback */ }
+
         consoleStyler.log('system', `✅ Auto-fix completed for ${componentName}`);
     } catch (err) {
         consoleStyler.log('error', `Auto-fix failed for ${componentName}: ${err.message}`);
@@ -423,6 +507,265 @@ async function handleSurfaceCallTool(data, ctx) {
     }
 }
 
+// ─── Rate Limiting ───────────────────────────────────────────────────────
+
+/**
+ * Simple token-bucket rate limiter for per-WebSocket throttling.
+ *
+ * Prevents compromised or buggy surface components from spamming
+ * server-side HTTP requests or tool calls through the direct action
+ * endpoints.
+ *
+ * Defaults: 30-token burst, refilling at 10 tokens/second.
+ */
+class _TokenBucket {
+    constructor(maxTokens = 30, refillRate = 10) {
+        this.maxTokens = maxTokens;
+        this.tokens = maxTokens;
+        this.refillRate = refillRate; // tokens per second
+        this.lastRefill = Date.now();
+    }
+
+    consume() {
+        this._refill();
+        if (this.tokens < 1) return false;
+        this.tokens -= 1;
+        return true;
+    }
+
+    _refill() {
+        const now = Date.now();
+        const elapsed = (now - this.lastRefill) / 1000;
+        this.tokens = Math.min(this.maxTokens, this.tokens + elapsed * this.refillRate);
+        this.lastRefill = now;
+    }
+}
+
+/** @type {WeakMap<object, _TokenBucket>} */
+const _rateLimiters = new WeakMap();
+
+/**
+ * Check (and consume) a token from the per-WebSocket rate limiter.
+ * Returns `true` if the request is allowed, `false` if throttled.
+ */
+function _checkRateLimit(ws) {
+    let bucket = _rateLimiters.get(ws);
+    if (!bucket) {
+        bucket = new _TokenBucket(30, 10);
+        _rateLimiters.set(ws, bucket);
+    }
+    return bucket.consume();
+}
+
+// ─── Direct Action Execution (LLM-free) ─────────────────────────────────
+
+/**
+ * Execute a registered direct action by name — bypasses the LLM entirely.
+ * Actions are registered via surface-register-action or built-in.
+ */
+async function handleSurfaceDirectInvoke(data, ctx) {
+    const { ws } = ctx;
+    const payload = data.payload || {};
+    const { requestId, surfaceId, actionName, args } = payload;
+    if (!requestId || !actionName) {
+        return wsSendError(ws, 'surface-direct-invoke requires requestId and actionName');
+    }
+    if (!_checkRateLimit(ws)) {
+        return wsSend(ws, 'surface-direct-result', {
+            requestId, success: false, data: null,
+            error: 'Rate limit exceeded — too many direct action requests. Try again shortly.',
+        });
+    }
+    try {
+        const executor = _getDirectActionExecutor(ctx);
+        const result = await executor.execute(actionName, args || {}, surfaceId || null);
+
+        if (result.success) {
+            wsSend(ws, 'surface-direct-result', { requestId, success: true, data: result.data, error: null });
+        } else {
+            wsSend(ws, 'surface-direct-result', { requestId, success: false, data: null, error: result.error });
+        }
+    } catch (err) {
+        wsSend(ws, 'surface-direct-result', { requestId, success: false, data: null, error: err.message });
+    }
+}
+
+/**
+ * Server-side HTTP proxy for surfaces — fetches external URLs without exposing
+ * the browser to CORS issues and without needing the LLM.
+ */
+async function handleSurfaceFetch(data, ctx) {
+    const { ws } = ctx;
+    const payload = data.payload || {};
+    const { requestId, url, method, headers, body, timeout } = payload;
+    if (!requestId || !url) {
+        return wsSendError(ws, 'surface-fetch requires requestId and url');
+    }
+    if (!_checkRateLimit(ws)) {
+        return wsSend(ws, 'surface-fetch-result', {
+            requestId, success: false, status: 0, statusText: '',
+            headers: {}, body: null, ok: false,
+            error: 'Rate limit exceeded — too many fetch proxy requests. Try again shortly.',
+        });
+    }
+    try {
+        const executor = _getDirectActionExecutor(ctx);
+        const result = await executor.fetchDirect(url, {
+            method: method || 'GET',
+            headers: headers || {},
+            body: body || undefined,
+            timeout: timeout || undefined,
+        });
+        wsSend(ws, 'surface-fetch-result', {
+            requestId,
+            success: true,
+            status: result.status,
+            statusText: result.statusText,
+            headers: result.headers,
+            body: result.body,
+            ok: result.ok,
+            error: null,
+        });
+    } catch (err) {
+        wsSend(ws, 'surface-fetch-result', {
+            requestId,
+            success: false,
+            status: 0,
+            statusText: '',
+            headers: {},
+            body: null,
+            ok: false,
+            error: err.message,
+        });
+    }
+}
+
+/**
+ * Register a direct action for a surface — lets component code declare
+ * server-side actions that execute tool calls, HTTP requests, or pipelines
+ * without routing through the LLM.
+ */
+async function handleSurfaceRegisterAction(data, ctx) {
+    const { ws } = ctx;
+    const payload = data.payload || {};
+    const { requestId, surfaceId, actionName, definition } = payload;
+    if (!requestId || !actionName || !definition) {
+        return wsSendError(ws, 'surface-register-action requires requestId, actionName, and definition');
+    }
+    if (!_checkRateLimit(ws)) {
+        return wsSend(ws, 'surface-action-registered', {
+            requestId, success: false, actionName, surfaceId: surfaceId || null,
+            error: 'Rate limit exceeded — too many action registration requests. Try again shortly.',
+        });
+    }
+    try {
+        // Block 'function' type from WebSocket — it requires a JS function reference
+        // which cannot be safely serialized over the wire
+        if (definition?.type === 'function') {
+            throw new Error('Function-type actions cannot be registered via WebSocket. Use tool, fetch, or pipeline types.');
+        }
+
+        // Limit pipeline step count to prevent request amplification
+        // (one directInvoke call → many server-side HTTP requests)
+        if (definition?.type === 'pipeline' && Array.isArray(definition.steps) && definition.steps.length > 10) {
+            throw new Error('Pipeline actions registered via WebSocket are limited to 10 steps.');
+        }
+
+        const executor = _getDirectActionExecutor(ctx);
+
+        if (surfaceId) {
+            executor.registerForSurface(surfaceId, actionName, definition);
+        } else {
+            executor.register(actionName, definition);
+        }
+
+        wsSend(ws, 'surface-action-registered', {
+            requestId,
+            success: true,
+            actionName,
+            surfaceId: surfaceId || null,
+            error: null,
+        });
+    } catch (err) {
+        wsSend(ws, 'surface-action-registered', {
+            requestId,
+            success: false,
+            actionName,
+            surfaceId: surfaceId || null,
+            error: err.message,
+        });
+    }
+}
+
+/**
+ * Open a surface from another surface (or any client context), optionally
+ * passing activation parameters.  If `params` are provided they are stored
+ * in the surface state under the reserved `_activationParams` key so the
+ * target surface components can retrieve them via
+ * `surfaceApi.getState('_activationParams')`.
+ *
+ * Emits `surface-opened` which `useTabManager` already listens for to
+ * auto-open the surface tab.
+ */
+const handleSurfaceOpenSurface = wsHandler(async (data, ctx, svc) => {
+    const { requestId, surfaceId, params } = data.payload;
+    if (!surfaceId) {
+        return wsSendError(ctx.ws, 'surface-open-surface requires surfaceId');
+    }
+
+    // Verify the target surface exists
+    const surface = await svc.getSurface(surfaceId);
+    if (!surface) {
+        const errMsg = `Surface "${surfaceId}" not found`;
+        if (requestId) {
+            wsSend(ctx.ws, 'surface-open-result', { requestId, success: false, error: errMsg });
+        } else {
+            wsSendError(ctx.ws, errMsg);
+        }
+        return;
+    }
+
+    // Store activation params in surface state if provided
+    if (params && typeof params === 'object' && Object.keys(params).length > 0) {
+        await svc.setSurfaceState(surfaceId, '_activationParams', params);
+    }
+
+    // Broadcast surface-opened so useTabManager opens the tab
+    // (ctx.broadcast sends to ALL connected clients so the tab opens
+    //  in the requesting client as well as any other open sessions)
+    ctx.broadcast('surface-opened', { surfaceId, surface, params: params || null });
+
+    // Respond to the requester with confirmation
+    if (requestId) {
+        wsSend(ctx.ws, 'surface-open-result', { requestId, success: true, surfaceId, error: null });
+    }
+}, { require: SM, requireLabel: SM_LABEL, errorPrefix: 'Failed to open surface' });
+
+/**
+ * List all available direct actions for a surface.
+ */
+async function handleSurfaceListActions(data, ctx) {
+    const { ws } = ctx;
+    const payload = data.payload || {};
+    const { requestId, surfaceId } = payload;
+    if (!requestId) {
+        return wsSendError(ws, 'surface-list-actions requires requestId');
+    }
+    if (!_checkRateLimit(ws)) {
+        return wsSend(ws, 'surface-actions-list', {
+            requestId, success: false, actions: [],
+            error: 'Rate limit exceeded — too many list-actions requests. Try again shortly.',
+        });
+    }
+    try {
+        const executor = _getDirectActionExecutor(ctx);
+        const actions = executor.listActions(surfaceId || null);
+        wsSend(ws, 'surface-actions-list', { requestId, success: true, actions, error: null });
+    } catch (err) {
+        wsSend(ws, 'surface-actions-list', { requestId, success: false, actions: [], error: err.message });
+    }
+}
+
 export const handlers = {
     'get-surfaces': handleGetSurfaces,
     'get-surface': handleGetSurface,
@@ -446,5 +789,10 @@ export const handlers = {
     'surface-read-many-files': handleSurfaceReadManyFiles,
     'surface-get-config': handleSurfaceGetConfig,
     'surface-call-tool': handleSurfaceCallTool,
-    'surface-auto-fix': handleSurfaceAutoFix
+    'surface-auto-fix': handleSurfaceAutoFix,
+    'surface-direct-invoke': handleSurfaceDirectInvoke,
+    'surface-fetch': handleSurfaceFetch,
+    'surface-register-action': handleSurfaceRegisterAction,
+    'surface-list-actions': handleSurfaceListActions,
+    'surface-open-surface': handleSurfaceOpenSurface
 };
