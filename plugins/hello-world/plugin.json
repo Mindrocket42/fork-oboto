@@ -16,6 +16,15 @@
         "label": "Hello World",
         "component": "components/HelloTab.jsx"
       }
+    ],
+    "activityBarItems": [
+      {
+        "id": "hello",
+        "label": "Hello World",
+        "icon": "👋",
+        "action": { "type": "plugin", "target": "hello-world" },
+        "order": 90
+      }
     ]
   }
 }

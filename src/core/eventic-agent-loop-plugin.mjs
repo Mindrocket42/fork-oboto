@@ -1,4 +1,4 @@
-import { emitStatus, summarizeInput, describeToolCall } from './status-reporter.mjs';
+import { emitStatus, emitCommentary, summarizeInput, describeToolCall, buildToolRoundNarrative } from './status-reporter.mjs';
 import { isCancellationError } from './ai-provider.mjs';
 import { consoleStyler } from '../ui/console-styler.mjs';
 import { sanitizeDirectMarkdown } from '../lib/sanitize-markdown.mjs';
@@ -226,6 +226,7 @@ export const EventicAgentLoopPlugin = {
             setupErrorListener(ctx);
 
             log("Running pre-check...");
+            emitCommentary(`🔍 Analyzing request: ${summarizeInput(input)} — checking if I can answer directly…`);
             
             // Direct-answer precheck: model answers immediately or signals __PROCEED__
             try {
@@ -249,6 +250,7 @@ export const EventicAgentLoopPlugin = {
                     const { action } = evaluateTextResponse(responseText, input, 0);
                     if (action !== 'retry') {
                         log("Pre-check: direct answer");
+                        emitCommentary('✅ Answered directly — no tools needed.');
                         if (ctx.stateManager) {
                             await ctx.stateManager.syncHistory(engine);
                             await ctx.stateManager.complete(ctx);
@@ -257,8 +259,10 @@ export const EventicAgentLoopPlugin = {
                         return { completed: true, response: responseText };
                     }
                     log("Pre-check: direct answer failed quality check, entering agent loop");
+                    emitCommentary('🔄 Direct answer didn\'t meet quality bar — entering the agent loop for a deeper response.');
                 } else {
                     log("Pre-check: proceeding to agent loop");
+                    emitCommentary('🧠 This requires tools and deeper reasoning — entering the agent loop.');
                 }
             } catch (e) {
                 // If the pre-check itself was cancelled, propagate immediately
@@ -298,12 +302,13 @@ export const EventicAgentLoopPlugin = {
                 await ctx.stateManager.checkpoint(ctx, engine, { phase: 'ACTOR_CRITIC_LOOP', guidance });
             }
 
-            emitStatus(
-                ctx.turnNumber === 1
-                    ? `Analyzing request: ${summarizeInput(input)}`
-                    : `Continuing work — turn ${ctx.turnNumber}/${ctx.maxTurns}` +
-                      (ctx.toolCallCount > 0 ? `, ${ctx.toolCallCount} tools called so far` : '')
-            );
+            if (ctx.turnNumber === 1) {
+                emitCommentary(`🚀 Turn 1/${ctx.maxTurns}: Analyzing request — ${summarizeInput(input)}`);
+            } else {
+                emitCommentary(`🔄 Turn ${ctx.turnNumber}/${ctx.maxTurns}: Continuing work` +
+                    (ctx.toolCallCount > 0 ? ` — ${ctx.toolCallCount} tools called so far` : '') +
+                    '. Sending context to AI…');
+            }
             log(`Turn ${ctx.turnNumber}/${ctx.maxTurns}`);
 
             let tools = [];
@@ -429,6 +434,13 @@ export const EventicAgentLoopPlugin = {
 
             // ── Branch: tool calls → execute tools ──
             if (response && response.toolCalls && response.toolCalls.length > 0) {
+                // If the AI included text commentary alongside tool calls,
+                // emit it as a visible narrative so the user knows what the
+                // agent is thinking/doing before the tools execute.
+                const aiText = typeof response === 'string' ? '' : (response.content || '');
+                if (aiText.trim()) {
+                    emitCommentary(`🤖 ${aiText.trim().substring(0, 300)}`);
+                }
                 emitStatus(`AI requested ${response.toolCalls.length} tool call(s) — executing…`);
                 return await dispatch('EXECUTE_TOOLS', { toolCalls: response.toolCalls, input, signal, stream, onChunk });
             }
@@ -436,7 +448,7 @@ export const EventicAgentLoopPlugin = {
             // ── Branch: text response → inline quality check (formerly EVALUATE_TEXT_RESPONSE) ──
             const content = typeof response === 'string' ? response : response?.content;
             if (content) {
-                emitStatus('AI provided a text response — checking quality…');
+                emitCommentary('📝 AI provided a text response — checking quality…');
                 const { action, guidance: retryGuidance } = evaluateTextResponse(content, input, ctx.retryCount);
 
                 if (action === 'retry') {
@@ -626,7 +638,15 @@ export const EventicAgentLoopPlugin = {
                  ctx.consciousness.trackToolCalls(toolCalls, results);
             }
 
-            emitStatus(`All ${toolCalls.length} tool(s) completed — sending results back to AI`);
+            // ── Emit narrative commentary after tool execution ──
+            // Build and emit a human-readable summary so the user sees a
+            // clear verbal callout of what was just done on each iteration.
+            const narrative = buildToolRoundNarrative(results);
+            if (narrative) {
+                emitCommentary(`🔧 ${narrative} Sending results back to AI for next steps…`);
+            } else {
+                emitStatus(`All ${toolCalls.length} tool(s) completed — sending results back to AI`);
+            }
             
             if (ctx.stateManager) {
                 await ctx.stateManager.syncHistory(engine);
@@ -638,6 +658,7 @@ export const EventicAgentLoopPlugin = {
 
             if (guidance) {
                 log(`Tool evaluation guidance: ${guidance}`);
+                emitCommentary(`📋 ${guidance}`);
                 return await dispatch('ACTOR_CRITIC_LOOP', { input, guidance, signal, stream, onChunk });
             }
 

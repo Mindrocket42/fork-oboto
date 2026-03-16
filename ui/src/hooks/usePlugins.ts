@@ -63,18 +63,35 @@ export interface PluginSettingsPanel {
 }
 
 /**
+ * A single plugin-registered activity bar item.
+ */
+export interface PluginActivityBarItem {
+  id: string;
+  label: string;
+  icon: string;
+  action: {
+    type: 'tab' | 'surface' | 'plugin' | 'custom';
+    target: string;
+  };
+  order?: number;
+  pluginName: string;
+}
+
+/**
  * Aggregated UI registrations from all active plugins.
  */
 export interface PluginUIManifest {
   tabs: PluginTab[];
   sidebarSections: PluginSidebarSection[];
   settingsPanels: PluginSettingsPanel[];
+  activityBarItems: PluginActivityBarItem[];
 }
 
 interface PluginUIRegistrations {
   tabs: PluginTab[];
   sidebarSections: PluginSidebarSection[];
   settingsPanels: PluginSettingsPanel[];
+  activityBarItems: PluginActivityBarItem[];
 }
 
 /**
@@ -91,6 +108,7 @@ export function usePlugins() {
     tabs: [],
     sidebarSections: [],
     settingsPanels: [],
+    activityBarItems: [],
   });
   const [loading, setLoading] = useState(true);
 
@@ -114,7 +132,7 @@ export function usePlugins() {
 
     const unsubManifest = wsService.on('plugin:ui-manifest', (payload: unknown) => {
       const manifest = payload as PluginUIManifest;
-      setUIManifest(manifest || { tabs: [], sidebarSections: [], settingsPanels: [] });
+      setUIManifest(manifest || { tabs: [], sidebarSections: [], settingsPanels: [], activityBarItems: [] });
     });
 
     // Listen for generic plugin settings responses

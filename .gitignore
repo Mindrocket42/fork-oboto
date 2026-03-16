@@ -76,5 +76,8 @@ regional-news.json
 # Browser profile data
 puppeteer_data/
 
+# AlephNet runtime identity and network data (contains private keys)
+data/
+
 # Windows build artifacts
 win-build/

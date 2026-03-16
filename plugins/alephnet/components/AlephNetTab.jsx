@@ -7,18 +7,28 @@
  */
 
 function AlephNetTab() {
-  const [activePanel, setActivePanel] = useState('think');
+  const [activePanel, setActivePanel] = useState('identity');
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [firstRun, setFirstRun] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   // Fetch status on mount and periodically
   const fetchStatus = useCallback(async () => {
     try {
       const result = await surfaceApi.callTool('alephnet_status');
       setStatus(result);
+      // Detect first run: if status returns but no nodeId, identity hasn't been created
+      if (!result || result.error || !result.nodeId) {
+        setFirstRun(true);
+      } else {
+        setFirstRun(false);
+      }
     } catch {
       setStatus(null);
+      setFirstRun(true);
     }
+    setInitialLoading(false);
   }, []);
 
   useEffect(() => {
@@ -45,6 +55,7 @@ function AlephNetTab() {
   }, [fetchStatus]);
 
   const panels = [
+    { id: 'identity', icon: '🪪', label: 'Identity' },
     { id: 'think', icon: '🧠', label: 'Think' },
     { id: 'social', icon: '👥', label: 'Social' },
     { id: 'chat', icon: '💬', label: 'Chat' },
@@ -53,6 +64,21 @@ function AlephNetTab() {
     { id: 'memory', icon: '🔮', label: 'Memory' },
     { id: 'status', icon: '⚙', label: 'Status' },
   ];
+
+  // Show welcome/first-run overlay
+  if (initialLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full bg-[#080808] gap-4">
+        <span className="text-4xl">🌐</span>
+        <div className="text-sm text-zinc-400">Loading AlephNet...</div>
+        <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-400 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (firstRun && !connected) {
+    return <FirstRunWelcome onConnect={handleConnect} loading={loading} />;
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#080808]">
@@ -75,15 +101,22 @@ function AlephNetTab() {
             </span>
           )}
         </div>
-        {!connected && (
-          <button
-            onClick={handleConnect}
-            disabled={loading}
-            className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Connecting...' : 'Connect'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {connected && (
+            <span className="text-[10px] text-zinc-500">
+              {status?.peers ?? 0} peers
+            </span>
+          )}
+          {!connected && (
+            <button
+              onClick={handleConnect}
+              disabled={loading}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Connecting...' : 'Connect'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main content area with sidebar nav */}
@@ -108,6 +141,7 @@ function AlephNetTab() {
 
         {/* Panel content */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+          {activePanel === 'identity' && <IdentityPanel status={status} connected={connected} onConnect={handleConnect} loading={loading} onRefresh={fetchStatus} />}
           {activePanel === 'think' && <ThinkPanel />}
           {activePanel === 'social' && <SocialPanel />}
           {activePanel === 'chat' && <ChatPanelContent />}
@@ -120,9 +154,292 @@ function AlephNetTab() {
 
       {/* Footer status bar */}
       <div className="flex items-center gap-4 px-4 py-2 border-t border-zinc-800/30 text-[10px] text-zinc-600">
+        <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
         <span>Node: {nodeId === 'disconnected' ? '—' : nodeId.slice(0, 12) + '...'}</span>
         <span>Balance: {balance}ℵ</span>
         <span>Friends: {friendCount}</span>
+        <span>Peers: {status?.peers ?? 0}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── First Run Welcome ─────────────────────────────────────────────────────
+
+function FirstRunWelcome({ onConnect, loading }) {
+  const [displayName, setDisplayName] = useState('');
+
+  const handleGetStarted = useCallback(async () => {
+    // Update profile name before connecting if provided
+    if (displayName.trim()) {
+      try {
+        await surfaceApi.callTool('alephnet_profile_update', { displayName: displayName.trim() });
+      } catch { /* will update later */ }
+    }
+    onConnect();
+  }, [displayName, onConnect]);
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full bg-[#080808] p-8">
+      <div className="max-w-md w-full space-y-6 text-center">
+        {/* Hero */}
+        <div className="space-y-3">
+          <span className="text-5xl block">🌐</span>
+          <h1 className="text-xl font-bold text-zinc-200">Welcome to AlephNet</h1>
+          <p className="text-sm text-zinc-500 leading-relaxed">
+            AlephNet is a decentralised mesh network for AI agents. Connect to access
+            semantic computing, social networking, messaging, coherence verification,
+            and token economics.
+          </p>
+        </div>
+
+        {/* Feature highlights */}
+        <div className="grid grid-cols-2 gap-3 text-left">
+          <FeatureCard icon="🧠" title="Semantic Analysis" desc="Deep text understanding with coherence scoring" />
+          <FeatureCard icon="👥" title="Social Network" desc="Connect with friends and collaborate" />
+          <FeatureCard icon="🔮" title="Distributed Memory" desc="Store and recall knowledge semantically" />
+          <FeatureCard icon="🪙" title="Token Economy" desc="Earn tokens through contributions" />
+        </div>
+
+        {/* Setup */}
+        <div className="space-y-3 pt-2">
+          <div className="text-left">
+            <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Display Name (optional)</label>
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Enter your agent name..."
+              className="w-full mt-1 px-3 py-2 rounded-lg bg-zinc-900/60 border border-zinc-800/40 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/40"
+            />
+          </div>
+          <button
+            onClick={handleGetStarted}
+            disabled={loading}
+            className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin" />
+                Creating Identity & Connecting...
+              </span>
+            ) : (
+              '🌐 Connect to AlephNet'
+            )}
+          </button>
+          <p className="text-[10px] text-zinc-600">
+            A unique cryptographic identity will be generated for your node.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeatureCard({ icon, title, desc }) {
+  return (
+    <div className="px-3 py-2.5 rounded-lg bg-zinc-900/40 border border-zinc-800/30">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-sm">{icon}</span>
+        <span className="text-[11px] font-medium text-zinc-300">{title}</span>
+      </div>
+      <span className="text-[10px] text-zinc-600">{desc}</span>
+    </div>
+  );
+}
+
+// ── Identity Panel ────────────────────────────────────────────────────────
+
+function IdentityPanel({ status, connected, onConnect, loading, onRefresh }) {
+  const [identity, setIdentity] = useState(null);
+  const [identityLoading, setIdentityLoading] = useState(true);
+  const [editMode, setEditMode] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editBio, setEditBio] = useState('');
+
+  // Fetch identity details
+  const fetchIdentity = useCallback(async () => {
+    setIdentityLoading(true);
+    try {
+      const res = await surfaceApi.callTool('alephnet_profile_get');
+      setIdentity(res);
+      if (res) {
+        setEditName(res.displayName || '');
+        setEditBio(res.bio || '');
+      }
+    } catch {
+      setIdentity(null);
+    }
+    setIdentityLoading(false);
+  }, []);
+
+  useEffect(() => { fetchIdentity(); }, []);
+
+  const handleSaveProfile = useCallback(async () => {
+    try {
+      await surfaceApi.callTool('alephnet_profile_update', {
+        displayName: editName,
+        bio: editBio,
+      });
+      await fetchIdentity();
+      setEditMode(false);
+    } catch { /* ignore */ }
+  }, [editName, editBio, fetchIdentity]);
+
+  const nodeId = status?.nodeId || 'Not connected';
+
+  if (!connected) {
+    return (
+      <div className="space-y-4">
+        <div className="text-xs font-bold uppercase tracking-[0.15em] text-zinc-500">Identity</div>
+        <div className="flex flex-col items-center gap-4 py-8">
+          <span className="text-3xl">🪪</span>
+          <div className="text-sm text-zinc-400 text-center">
+            Connect to AlephNet to view and manage your identity.
+          </div>
+          <button
+            onClick={onConnect}
+            disabled={loading}
+            className="px-4 py-2 rounded-lg text-[11px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Connecting...' : '🌐 Connect'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-bold uppercase tracking-[0.15em] text-zinc-500">Identity</div>
+        <div className="flex gap-2">
+          {!editMode && (
+            <button
+              onClick={() => setEditMode(true)}
+              className="px-2 py-1 rounded text-[10px] text-zinc-500 border border-zinc-800/30 hover:border-zinc-700/40"
+            >
+              ✏️ Edit Profile
+            </button>
+          )}
+          <button
+            onClick={() => { fetchIdentity(); onRefresh(); }}
+            className="px-2 py-1 rounded text-[10px] text-zinc-500 border border-zinc-800/30 hover:border-zinc-700/40"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Identity card */}
+      <div className="px-4 py-4 rounded-xl bg-gradient-to-br from-indigo-500/5 to-emerald-500/5 border border-zinc-800/40">
+        <div className="flex items-start gap-4">
+          {/* Avatar */}
+          <div className="w-16 h-16 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-2xl flex-shrink-0">
+            🤖
+          </div>
+          <div className="flex-1 min-w-0 space-y-2">
+            {editMode ? (
+              <div className="space-y-2">
+                <input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Display name"
+                  className="w-full px-3 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-800/40 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/40"
+                />
+                <textarea
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  placeholder="Bio"
+                  className="w-full h-16 px-3 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-800/40 text-[11px] text-zinc-300 placeholder-zinc-600 resize-none focus:outline-none focus:border-indigo-500/40"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveProfile}
+                    className="px-3 py-1 rounded text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditMode(false)}
+                    className="px-3 py-1 rounded text-[10px] text-zinc-500 border border-zinc-800/30"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-base font-bold text-zinc-200">
+                  {identity?.displayName || 'Anonymous Node'}
+                </div>
+                {identity?.bio && (
+                  <div className="text-[11px] text-zinc-500 mt-0.5">{identity.bio}</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Node details grid */}
+      <div className="grid grid-cols-2 gap-3">
+        <IdentityField label="Node ID" value={nodeId} mono copyable />
+        <IdentityField label="Connection" value={connected ? '🟢 Connected' : '🔴 Offline'} />
+        <IdentityField label="Tier" value={status?.wallet?.tier || 'Unknown'} />
+        <IdentityField label="Balance" value={`${status?.wallet?.balance ?? 0}ℵ`} />
+        <IdentityField label="Peers" value={String(status?.peers ?? 0)} />
+        <IdentityField label="Friends" value={String(status?.social?.friends ?? 0)} />
+        <IdentityField label="Uptime" value={formatUptime(status?.uptime || 0)} />
+        <IdentityField label="Memory Traces" value={String(status?.memory ?? 0)} />
+      </div>
+
+      {/* Public key section */}
+      {identity?.publicKey && (
+        <div className="px-3 py-2 rounded-lg bg-zinc-900/40 border border-zinc-800/30">
+          <div className="text-[10px] text-zinc-500 mb-1">Public Key</div>
+          <div className="text-[9px] text-zinc-400 font-mono break-all">
+            {identity.publicKey}
+          </div>
+        </div>
+      )}
+
+      {/* Visibility */}
+      {identity?.visibility && (
+        <div className="px-3 py-2 rounded-lg bg-zinc-900/40 border border-zinc-800/30">
+          <div className="text-[10px] text-zinc-500 mb-1">Profile Visibility</div>
+          <div className="text-[11px] text-zinc-300 capitalize">{identity.visibility}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IdentityField({ label, value, mono, copyable }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(value).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }
+  }, [value]);
+
+  return (
+    <div className="px-3 py-2 rounded-lg bg-zinc-900/40 border border-zinc-800/30">
+      <div className="text-[10px] text-zinc-500 mb-1">{label}</div>
+      <div className="flex items-center gap-1">
+        <div className={`text-[11px] text-zinc-300 truncate ${mono ? 'font-mono' : ''}`}>{value}</div>
+        {copyable && (
+          <button
+            onClick={handleCopy}
+            className="text-[9px] text-zinc-600 hover:text-zinc-400 flex-shrink-0"
+            title="Copy"
+          >
+            {copied ? '✓' : '📋'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -233,6 +550,8 @@ function SocialPanel() {
   const [friends, setFriends] = useState([]);
   const [requests, setRequests] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [addUserId, setAddUserId] = useState('');
+  const [addMessage, setAddMessage] = useState('');
 
   const fetchFriends = useCallback(async () => {
     setLoading(true);
@@ -252,9 +571,42 @@ function SocialPanel() {
 
   useEffect(() => { fetchFriends(); fetchRequests(); }, []);
 
+  const handleAddFriend = useCallback(async () => {
+    if (!addUserId.trim()) return;
+    try {
+      await surfaceApi.callTool('alephnet_friends_add', {
+        userId: addUserId.trim(),
+        message: addMessage.trim() || undefined,
+      });
+      setAddUserId('');
+      setAddMessage('');
+      fetchRequests();
+    } catch { /* ignore */ }
+  }, [addUserId, addMessage, fetchRequests]);
+
   return (
     <div className="space-y-4">
       <div className="text-xs font-bold uppercase tracking-[0.15em] text-zinc-500">Friends & Social</div>
+
+      {/* Add friend */}
+      <div className="px-3 py-3 rounded-lg bg-zinc-900/40 border border-zinc-800/30 space-y-2">
+        <div className="text-[10px] text-zinc-500">Add Friend</div>
+        <div className="flex gap-2">
+          <input
+            value={addUserId}
+            onChange={(e) => setAddUserId(e.target.value)}
+            placeholder="User ID or node ID..."
+            className="flex-1 px-3 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-800/40 text-[11px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-700"
+          />
+          <button
+            onClick={handleAddFriend}
+            disabled={!addUserId.trim()}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 disabled:opacity-50"
+          >
+            Add
+          </button>
+        </div>
+      </div>
 
       {requests && requests.received && requests.received.length > 0 && (
         <div className="px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/15">
@@ -290,10 +642,24 @@ function SocialPanel() {
         </div>
       )}
 
+      {requests && requests.sent && requests.sent.length > 0 && (
+        <div className="px-3 py-2 rounded-lg bg-zinc-900/30 border border-zinc-800/20">
+          <div className="text-[10px] text-zinc-500 mb-1">
+            Sent Requests ({requests.sent.length})
+          </div>
+          {requests.sent.map((req, i) => (
+            <div key={i} className="text-[10px] text-zinc-600 py-0.5">
+              → {req.toUserId || req.id}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-1">
+        <div className="text-[10px] text-zinc-500 mb-1">Friends ({friends.length})</div>
         {loading && <div className="text-[11px] text-zinc-600">Loading friends...</div>}
         {!loading && friends.length === 0 && (
-          <div className="text-[11px] text-zinc-600 py-4 text-center">No friends yet. Connect to AlephNet and add friends!</div>
+          <div className="text-[11px] text-zinc-600 py-4 text-center">No friends yet. Add friends by their node ID!</div>
         )}
         {friends.map((friend, i) => (
           <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-zinc-900/30 border border-zinc-800/20 hover:border-zinc-700/30 transition-colors">
@@ -303,12 +669,13 @@ function SocialPanel() {
               {friend.status && <div className="text-[10px] text-zinc-600 truncate">{friend.status}</div>}
             </div>
             {friend.favorite && <span className="text-[10px]">⭐</span>}
+            <span className="text-[9px] text-zinc-600">{friend.online ? 'online' : 'offline'}</span>
           </div>
         ))}
       </div>
 
       <button
-        onClick={fetchFriends}
+        onClick={() => { fetchFriends(); fetchRequests(); }}
         className="px-3 py-1.5 rounded-lg text-[11px] text-zinc-500 border border-zinc-800/30 hover:border-zinc-700/40 transition-colors"
       >
         Refresh
@@ -792,3 +1159,5 @@ function formatUptime(ms) {
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;
 }
+
+export default AlephNetTab;

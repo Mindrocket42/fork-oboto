@@ -8,7 +8,7 @@ import { consoleStyler } from '../ui/console-styler.mjs';
  * and binds them to the Express app.
  * 
  * Disabled by default. Set OBOTO_DYNAMIC_ROUTES=true to enable.
- * Only scans routes/ and api/ directories for security.
+ * Only scans routes/, .routes/, and api/ directories for security.
  * 
  * @param {import('express').Application} app 
  * @param {string} workingDir 
@@ -27,7 +27,7 @@ export async function mountDynamicRoutes(app, workingDir) {
     // Only scan designated route directories, NOT the workspace root
     // This prevents importing application files (ai.mjs, etc.)
     // which cause side-effect noise during startup
-    const ROUTE_DIRS = ['routes', 'api'];
+    const ROUTE_DIRS = ['routes', '.routes', 'api'];
     const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', 'ui', 'src', 'scripts', 'chrome-extension', 'tray-app', 'docs', 'plans', 'logs', 'puppeteer_data', 'skills']);
     
     async function scan(dir, isRoot = false) {
@@ -43,7 +43,7 @@ export async function mountDynamicRoutes(app, workingDir) {
                     if (SKIP_DIRS.has(entry.name)) continue;
                     
                     // Also skip hidden directories generally (except .well-known maybe?)
-                    if (entry.name.startsWith('.') && entry.name !== '.well-known') continue;
+                    if (entry.name.startsWith('.') && entry.name !== '.well-known' && entry.name !== '.routes') continue;
                     
                     await scan(fullPath, false);
                 } else if (!isRoot && entry.isFile() && (entry.name.endsWith('.js') || entry.name.endsWith('.mjs'))) {

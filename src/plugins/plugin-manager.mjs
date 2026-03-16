@@ -317,6 +317,37 @@ export class PluginManager {
                 });
             }
         }
+
+        // Register activity bar items from manifest
+        if (Array.isArray(manifest.ui.activityBarItems)) {
+            for (const item of manifest.ui.activityBarItems) {
+                api.ui.registerActivityBarItem({
+                    id: item.id || pluginName,
+                    label: item.label || manifest.name || pluginName,
+                    icon: item.icon || '🔌',
+                    action: item.action || { type: 'plugin', target: pluginName },
+                    ...(item.order != null ? { order: item.order } : {})
+                });
+            }
+        }
+
+        // Auto-generate activity bar items for plugins with tabs that don't
+        // explicitly declare activityBarItems. This ensures every plugin that
+        // contributes a top-level content screen is accessible from the
+        // activity bar.
+        if (manifest.ui.tabs && Array.isArray(manifest.ui.tabs) && manifest.ui.tabs.length > 0) {
+            const hasExplicitItems = Array.isArray(manifest.ui.activityBarItems) && manifest.ui.activityBarItems.length > 0;
+            if (!hasExplicitItems) {
+                const firstTab = manifest.ui.tabs[0];
+                api.ui.registerActivityBarItem({
+                    id: firstTab.id || pluginName,
+                    label: firstTab.label || manifest.name || pluginName,
+                    icon: firstTab.icon || '🔌',
+                    action: { type: 'plugin', target: pluginName },
+                    order: 100
+                });
+            }
+        }
     }
 
     /**
@@ -407,7 +438,7 @@ export class PluginManager {
         return Array.from(this.plugins.values()).map(p => {
             const tools = p.api?.tools?.list() || [];
             const capabilities = p.discovered.manifest.capabilities || {};
-            const ui = p.api?._registeredUIComponents || { tabs: [], sidebarSections: [], settingsPanels: [] };
+            const ui = p.api?._registeredUIComponents || { tabs: [], sidebarSections: [], settingsPanels: [], activityBarItems: [] };
 
             // Build a human-readable features summary
             const featureParts = [];
@@ -451,6 +482,7 @@ export class PluginManager {
         const tabs = [];
         const sidebarSections = [];
         const settingsPanels = [];
+        const activityBarItems = [];
 
         for (const instance of this.plugins.values()) {
             if (instance.status !== 'active' || !instance.api) continue;
@@ -458,9 +490,10 @@ export class PluginManager {
             tabs.push(...ui.tabs);
             sidebarSections.push(...ui.sidebarSections);
             settingsPanels.push(...ui.settingsPanels);
+            if (ui.activityBarItems) activityBarItems.push(...ui.activityBarItems);
         }
 
-        return { tabs, sidebarSections, settingsPanels };
+        return { tabs, sidebarSections, settingsPanels, activityBarItems };
     }
 
     /**

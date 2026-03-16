@@ -115,15 +115,16 @@ const SIMPLE_PATTERNS = [
 
 /**
  * Patterns that strongly indicate a complex (plannable) request.
+ * These are checked ONLY when the input exceeds a minimum word count
+ * (see classifyInput) to avoid over-decomposing simple requests like
+ * "create a new surface with a particle sim".
  */
 const COMPLEX_PATTERNS = [
-  // Creation / implementation verbs with nouns
-  /\b(create|build|implement|develop|scaffold|bootstrap|set\s*up|make|design|architect)\s+(?:a|an|the|my)\s+/i,
-  // Refactoring / migration
+  // Refactoring / migration — these are almost always multi-step
   /\b(refactor|migrate|convert|restructure|reorganize|overhaul)\s/i,
   // Multi-step explicit language
   /\b(and\s+then|first.*then|step\s*1|multiple\s+(files?|components?|modules?))\b/i,
-  // Project-scope work
+  // Project-scope work with detailed requirements
   /\b(project|application|app|website|service|api|system|platform|library|package|codebase)\b.*\b(with|using|including|that\s+has)\b/i,
 ];
 
@@ -141,7 +142,7 @@ const COMPLEX_PATTERNS = [
 function classifyInput(input, config = {}) {
   const trimmed = input.trim();
   const wordCount = trimmed.split(/\s+/).length;
-  const minWords = config.minComplexityWords ?? 20;
+  const minWords = config.minComplexityWords ?? 30; // raised from 20
 
   // Very short messages are always simple
   if (wordCount <= 5) return 'simple';
@@ -155,16 +156,20 @@ function classifyInput(input, config = {}) {
     }
   }
 
-  // Check complex patterns
-  for (const pattern of COMPLEX_PATTERNS) {
-    if (pattern.test(trimmed)) return 'complex';
+  // Check complex patterns — only for inputs with enough substance.
+  // Short "create a..." requests (< 30 words) are better handled directly
+  // without the overhead of a full multi-step plan.
+  if (wordCount >= 15) {
+    for (const pattern of COMPLEX_PATTERNS) {
+      if (pattern.test(trimmed)) return 'complex';
+    }
   }
 
-  // Long messages with action verbs lean complex
+  // Long messages with MULTIPLE action verbs lean complex
   if (wordCount >= minWords) {
     const actionVerbs = /\b(create|build|implement|write|add|update|fix|refactor|deploy|test|install|configure|set\s*up|generate|modify|change)\b/gi;
     const matches = trimmed.match(actionVerbs);
-    if (matches && matches.length >= 2) return 'complex';
+    if (matches && matches.length >= 3) return 'complex'; // raised from 2 to 3
   }
 
   // Default: simple (conservative)
@@ -178,14 +183,17 @@ function classifyInput(input, config = {}) {
 /**
  * System prompt for the plan generation LLM call.
  */
-const PLANNING_SYSTEM_PROMPT = `You are a task planning assistant. Given a user's request, decompose it into a structured plan of 3-10 actionable steps.
+const PLANNING_SYSTEM_PROMPT = `You are a task planning assistant. Given a user's request, decompose it into the MINIMUM number of actionable steps needed. Prefer FEWER steps — most tasks need only 2-4 steps.
 
 Rules:
-1. Each step should be achievable in a single tool-call round (1-2 tool calls max)
+1. Each step should be achievable in a single tool-call round (1-3 tool calls max)
 2. Steps should be in logical execution order
 3. Use clear, specific labels (not vague like "set up things")
 4. Include which tools each step will likely need
-5. Keep the plan concise — don't over-decompose simple sub-tasks
+5. NEVER over-decompose — combine related sub-tasks into single steps
+6. Reading a file and then using its contents should be ONE step, not two
+7. Maximum 5 steps for most tasks. Only use 6+ for truly large multi-component work.
+8. Do NOT add separate steps for "testing" or "polish" unless explicitly requested
 
 Available tools: read_file, write_file, write_to_file, edit_file, apply_diff, execute_command, list_files, search_files, delete_file, browse_open, create_surface, update_surface_component
 
@@ -213,7 +221,13 @@ Do NOT include any text outside the JSON object.`;
  * @returns {Promise<TaskPlan|null>} - Plan, or null if generation failed
  */
 async function generatePlan(input, callLLM, options = {}) {
-  const maxSteps = options.maxSteps || 10;
+  // Dynamic step cap based on input complexity.
+  // Short requests (< 50 words) get at most 4 steps.
+  // Medium requests (50-100 words) get at most 5 steps.
+  // Long/detailed requests can use up to the configured max.
+  const wordCount = input.trim().split(/\s+/).length;
+  const dynamicMax = wordCount < 50 ? 4 : wordCount < 100 ? 5 : 8;
+  const maxSteps = Math.min(options.maxSteps || 8, dynamicMax);
 
   try {
     emitStatus('Analyzing task complexity — generating plan…');

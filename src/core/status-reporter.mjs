@@ -106,6 +106,23 @@ export function emitStatus(message) {
 }
 
 /**
+ * Emit a high-visibility commentary message that narrates what the agent
+ * is doing.  Broadcasts both as a status update (ephemeral ThinkingIndicator)
+ * AND as an 'agentic' log entry (persistent in the message stream) so the
+ * user always sees a clear verbal callout of each processing phase.
+ *
+ * Use this instead of emitStatus() when the message should survive being
+ * overwritten by the next status update — e.g. tool round summaries,
+ * AI text alongside tool calls, phase transitions.
+ *
+ * @param {string} text — The narrative commentary
+ */
+export function emitCommentary(text) {
+    emitStatus(text);
+    consoleStyler.log('agentic', text);
+}
+
+/**
  * Create a short summary of user input for inclusion in status messages.
  * Truncates to ~60 chars, removes newlines, wraps in quotes.
  *
@@ -192,4 +209,61 @@ function _truncate(s, maxLen = 50) {
 /** Convert snake_case tool names to Title Case. */
 function _humanize(name) {
     return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/**
+ * Build a narrative-style summary of a completed tool round.
+ * Used to provide verbal callouts between processing blocks.
+ *
+ * @param {Array<{name: string, result?: unknown, content?: string}>} tools
+ *   Each entry needs at minimum `name`. The `result` or `content` fields
+ *   are used to detect failures.
+ * @returns {string} Human-readable narrative, e.g. "Just read file data, and edited files."
+ */
+export function buildToolRoundNarrative(tools) {
+    if (!tools || tools.length === 0) return '';
+
+    const parts = [];
+    for (const tool of tools) {
+        const name = tool.name || 'unknown';
+        const content = typeof tool.content === 'string' ? tool.content.trim() : '';
+        const result = tool.result;
+        const isError = /^error:/i.test(content)
+            || result?.success === false
+            || result?.error;
+
+        if (isError) {
+            parts.push(`${_humanize(name)} encountered an error`);
+        } else if (name === 'read_file' || name === 'read_many_files') {
+            parts.push('read file data');
+        } else if (name === 'write_file' || name === 'write_to_file' || name === 'write_many_files') {
+            parts.push('wrote file changes');
+        } else if (name === 'edit_file' || name === 'apply_diff') {
+            parts.push('edited files');
+        } else if (name === 'execute_command' || name === 'run_command') {
+            parts.push('ran a command');
+        } else if (name === 'search_files' || name === 'search_web' || name === 'list_files') {
+            parts.push('searched for information');
+        } else if (name === 'add_tasks') {
+            parts.push('created a task plan');
+        } else if (name === 'complete_current_task') {
+            parts.push('completed a task');
+        } else {
+            parts.push(`used ${_humanize(name).toLowerCase()}`);
+        }
+    }
+
+    // De-duplicate adjacent identical entries
+    const deduped = [];
+    for (const p of parts) {
+        if (deduped.length === 0 || deduped[deduped.length - 1] !== p) {
+            deduped.push(p);
+        }
+    }
+
+    if (deduped.length === 1) {
+        return `Just ${deduped[0]}.`;
+    }
+    const last = deduped.pop();
+    return `Just ${deduped.join(', ')}, and ${last}.`;
 }

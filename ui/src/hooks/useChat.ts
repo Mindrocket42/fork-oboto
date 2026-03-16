@@ -63,6 +63,10 @@ export const useChat = () => {
   const queueRef = useRef<string[]>([]);
   const logIdRef = useRef(0);
   const allLogIdRef = useRef(0);
+  // Streaming chunk accumulator — coalesces rapid deltas via RAF to reduce
+  // state updates and GC pressure from creating new message arrays.
+  const streamingDeltaRef = useRef<{ id: string; accumulated: string } | null>(null);
+  const streamingRafRef = useRef<number>(0);
   
   // Keep ref in sync with state for access in effects/callbacks without dependency loops
   useEffect(() => { queueRef.current = messageQueue; }, [messageQueue]);
@@ -208,7 +212,95 @@ export const useChat = () => {
               return [...prev, incoming];
           });
       }),
-      
+
+      // ── Streaming response events ─────────────────────────────────────
+      // These three events form a streaming lifecycle:
+      //   message-stream-start  → create empty placeholder message
+      //   message-stream-chunk  → append token deltas incrementally
+      //   message-stream-end    → finalize with authoritative content
+
+      wsService.on('message-stream-start', (payload: unknown) => {
+          const p = payload as { id: string; role: string; timestamp: string };
+          setMessages(prev => {
+              // Check if there's already a pending AI message (from tool calls).
+              // If so, mark it as streaming instead of creating a new one.
+              const pendingIdx = prev.findIndex(m => m._pending === true && m.role === 'ai');
+              if (pendingIdx !== -1) {
+                  const newMsgs = [...prev];
+                  newMsgs[pendingIdx] = {
+                      ...prev[pendingIdx],
+                      id: p.id,  // Use the stream ID so chunks can find it
+                      _streaming: true,
+                  };
+                  return newMsgs;
+              }
+              // No pending message — create a fresh streaming placeholder
+              return [...prev, {
+                  id: p.id,
+                  role: p.role as 'ai',
+                  type: 'text' as const,
+                  content: '',
+                  timestamp: p.timestamp,
+                  _streaming: true,
+              }];
+          });
+          // NOTE: Do NOT set isWorking(false) here — the server is still working.
+          // The ThinkingIndicator is hidden by checking _streaming on messages instead.
+      }),
+
+      wsService.on('message-stream-chunk', (payload: unknown) => {
+          const p = payload as { id: string; delta: string };
+          // Accumulate deltas in a ref and flush via requestAnimationFrame
+          // to coalesce rapid 50ms chunks into fewer React state updates,
+          // reducing GC pressure from creating new message arrays.
+          const ref = streamingDeltaRef.current;
+          if (ref && ref.id === p.id) {
+              ref.accumulated += p.delta;
+          } else {
+              streamingDeltaRef.current = { id: p.id, accumulated: p.delta };
+          }
+          if (!streamingRafRef.current) {
+              streamingRafRef.current = requestAnimationFrame(() => {
+                  streamingRafRef.current = 0;
+                  const pending = streamingDeltaRef.current;
+                  if (!pending || !pending.accumulated) return;
+                  const { id, accumulated } = pending;
+                  pending.accumulated = '';
+                  setMessages(prev => prev.map(msg =>
+                      msg.id === id
+                          ? { ...msg, content: (msg.content || '') + accumulated }
+                          : msg
+                  ));
+              });
+          }
+      }),
+
+      wsService.on('message-stream-end', (payload: unknown) => {
+          const p = payload as {
+              id: string;
+              content: string;
+              tokenUsage?: { totalTokens?: number; promptTokens?: number; completionTokens?: number };
+              interrupted?: boolean;
+          };
+          // Cancel any pending RAF flush — the authoritative content supersedes it
+          if (streamingRafRef.current) {
+              cancelAnimationFrame(streamingRafRef.current);
+              streamingRafRef.current = 0;
+          }
+          streamingDeltaRef.current = null;
+          setMessages(prev => prev.map(msg =>
+              msg.id === p.id
+                  ? {
+                      ...msg,
+                      content: p.content,  // Authoritative final content
+                      _streaming: false,
+                      _pending: undefined,
+                      ...(p.tokenUsage ? { tokenUsage: p.tokenUsage } : {}),
+                  }
+                  : msg
+          ));
+      }),
+
       // Individual tool-call events from ToolExecutor (read_file, write_file, etc.)
       // Distinct from high-level 'tool-start'/'tool-end' emitted by ServerStatusAdapter
       // for facade operations (ai_man_chat, ai_man_execute, etc.)
@@ -359,6 +451,11 @@ export const useChat = () => {
       if (switchTimeoutRef.current) {
         clearTimeout(switchTimeoutRef.current);
         switchTimeoutRef.current = null;
+      }
+      // Cancel any pending streaming RAF flush
+      if (streamingRafRef.current) {
+        cancelAnimationFrame(streamingRafRef.current);
+        streamingRafRef.current = 0;
       }
     };
   }, []);

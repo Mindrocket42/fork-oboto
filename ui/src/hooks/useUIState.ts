@@ -1,5 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { wsService } from '../services/wsService';
+
+/** Shape of the persisted layout configuration */
+export interface LayoutConfig {
+  showHeader: boolean;
+  showActivityBar: boolean;
+  showSidebar: boolean;
+  showStatusBar: boolean;
+  showInputArea: boolean;
+  showTabBar: boolean;
+  sidebarWidth: number;
+}
 
 export function useUIState() {
   const [showGlobalPalette, setShowGlobalPalette] = useState(false);
@@ -15,6 +26,36 @@ export function useUIState() {
   const [showWizard, setShowWizard] = useState(false);
   const [showTaskSidebar, setShowTaskSidebar] = useState(false);
   const [workspacePort, setWorkspacePort] = useState<number | null>(null);
+
+  // Layout visibility state (persisted via workspace state)
+  const [showHeader, setShowHeader] = useState(true);
+  const [showActivityBar, setShowActivityBar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [showStatusBar, setShowStatusBar] = useState(true);
+  const [showInputArea, setShowInputArea] = useState(true);
+  const [showTabBar, setShowTabBar] = useState(true);
+
+  // Bulk setter: accepts a partial layout config, applies all provided values
+  const setLayoutConfig = useCallback((config: Partial<LayoutConfig>) => {
+    if (config.showHeader !== undefined) setShowHeader(config.showHeader);
+    if (config.showActivityBar !== undefined) setShowActivityBar(config.showActivityBar);
+    if (config.showSidebar !== undefined) setShowSidebar(config.showSidebar);
+    if (config.showStatusBar !== undefined) setShowStatusBar(config.showStatusBar);
+    if (config.showInputArea !== undefined) setShowInputArea(config.showInputArea);
+    if (config.showTabBar !== undefined) setShowTabBar(config.showTabBar);
+    if (config.sidebarWidth !== undefined) setSidebarWidth(config.sidebarWidth);
+  }, []);
+
+  // Getter: returns the current layout state as a LayoutConfig object
+  const getLayoutConfig = useCallback((): LayoutConfig => ({
+    showHeader,
+    showActivityBar,
+    showSidebar,
+    showStatusBar,
+    showInputArea,
+    showTabBar,
+    sidebarWidth,
+  }), [showHeader, showActivityBar, showSidebar, showStatusBar, showInputArea, showTabBar, sidebarWidth]);
 
   // Sidebar resizing logic
   useEffect(() => {
@@ -77,6 +118,15 @@ export function useUIState() {
     isResizingSidebar, setIsResizingSidebar,
     showWizard, setShowWizard,
     showTaskSidebar, setShowTaskSidebar,
-    workspacePort
+    workspacePort,
+    // Layout visibility
+    showHeader, setShowHeader,
+    showActivityBar, setShowActivityBar,
+    showSidebar, setShowSidebar,
+    showStatusBar, setShowStatusBar,
+    showInputArea, setShowInputArea,
+    showTabBar, setShowTabBar,
+    setLayoutConfig,
+    getLayoutConfig,
   };
 }

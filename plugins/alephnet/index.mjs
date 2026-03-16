@@ -692,6 +692,32 @@ export async function activate(api) {
         }, state));
         wsHandlerCount++;
 
+        // ── Identity handler — combines profile + identity info for the UI ──
+        api.ws.register('alephnet:identity', safeWsHandler(async () => {
+            const [profile, status] = await Promise.all([
+                callAction('profile.get', {}).catch(() => null),
+                callAction('status', {}).catch(() => null),
+            ]);
+            let publicKey = null;
+            try {
+                const keyResult = await callAction('identity.publicKey', {});
+                publicKey = keyResult?.publicKey || keyResult?.key || null;
+            } catch { /* identity actions may not exist in all skill versions */ }
+            return {
+                nodeId: status?.nodeId || null,
+                displayName: profile?.displayName || state.settings.displayName || null,
+                bio: profile?.bio || state.settings.bio || null,
+                tier: status?.wallet?.tier || 'Unknown',
+                publicKey,
+                connected: isConnected(),
+                peers: status?.peers ?? 0,
+                balance: status?.wallet?.balance ?? 0,
+                friends: status?.social?.friends ?? 0,
+                uptime: status?.uptime ?? 0,
+            };
+        }, state));
+        wsHandlerCount++;
+
     } catch (err) {
         consoleStyler.log('error', `[AlephNet] Tool/handler registration failed after ${toolCount} tools, ${wsHandlerCount} WS handlers: ${err.message}`);
     }

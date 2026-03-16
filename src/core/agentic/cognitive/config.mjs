@@ -23,6 +23,45 @@ export const DEFAULT_COGNITIVE_CONFIG = {
     objectivityThreshold: 0.6,
     initTicks: 10
   },
+  // Sentient Observer configuration — when enabled, replaces the lightweight
+  // CognitiveCore with the full SentientObserver from alephnet-node skill.
+  // Provides proper semantic encoding, holographic memory with similarity
+  // recall, adaptive (ACT-style) processing, temporal/entanglement layers,
+  // and continuous background evolution.
+  sentient: {
+    // Master toggle — when true, CognitiveAgent uses SentientCognitiveCore
+    // instead of CognitiveCore.  Requires skills/alephnet-node to be present
+    // and @aleph-ai/tinyaleph to be installed.  Falls back gracefully to
+    // lightweight CognitiveCore if dependencies are missing.
+    // Set to true or use .ai-man/sentient.json to enable.
+    enabled: false,
+    // Number of primes for the PRSC oscillator layer
+    primeCount: 64,
+    // Background tick rate in Hz (how often the observer evolves autonomously)
+    tickRate: 60,
+    // Whether to start the background tick loop automatically on init.
+    // Enabled by default for continuous cognitive evolution.
+    // Can be disabled per-workspace via {workingDir}/.ai-man/sentient.json
+    backgroundTick: true,
+    // Coherence threshold for safety checks and moment detection
+    coherenceThreshold: 0.7,
+    // ObjectivityGate threshold
+    objectivityThreshold: 0.6,
+    // Adaptive processing (ACT-style coherence-gated computation)
+    adaptiveProcessing: true,
+    adaptiveMaxSteps: 50,
+    adaptiveCoherenceThreshold: 0.7,
+    // Observer identity name
+    name: 'Sentient Observer',
+    // Memory path override (defaults to {workingDir}/.ai-man/sentient-memory/)
+    memoryPath: null,
+    // Number of init ticks before first interaction
+    initTicks: 10,
+    // State persistence — auto-save/load observer state between sessions
+    statePersistence: true,
+    // State file path (defaults to {workingDir}/.ai-man/sentient-state.json)
+    statePath: null,
+  },
   agent: {
     // Maximum sequential tool-call rounds before forcing a text response.
     // Set to 15 as a reasonable cap for multi-step workflows (reading files,
@@ -36,9 +75,14 @@ export const DEFAULT_COGNITIVE_CONFIG = {
     // Unlike the legacy loop (which has a graceful "needs synthesis" step when
     // iterations exhaust), lmscript throws a JSON-parse error if the LLM is
     // still making tool calls when maxIterations is reached.  Keep this value
-    // moderate (8-10) so the agent converges before exhaustion.  The continuation
+    // moderate (6) so the agent converges before exhaustion.  The continuation
     // loop in turn() will re-invoke executeAgent() if more work is needed.
-    maxLmscriptIterations: 10,
+    maxLmscriptIterations: 6,
+    // Maximum consecutive empty iterations (no tool calls) before aborting.
+    // Prevents the LLM from "spinning" — consuming LLM budget on pure
+    // thinking iterations that produce no tool calls.  When this limit is
+    // reached, the agent synthesizes a response from collected tool results.
+    maxEmptyIterations: 2,
     // Maximum continuation rounds when the LLM announces intent but doesn't act.
     // If the LLM says "Let me do X" instead of making tool calls or providing a
     // final answer, the agent will prompt it to continue up to this many times.
@@ -46,10 +90,9 @@ export const DEFAULT_COGNITIVE_CONFIG = {
     maxContinuations: 3,
     // Combined ceiling on total LLM calls within a single turn.
     // Prevents runaway cost from the tool-call + continuation loop.
-    // Practical worst case: maxToolRounds(15) + (maxContinuations(3) × 5) + 1 = 31,
-    // so this ceiling must be >= 31 to avoid prematurely halting tool loops.
-    // Set to 35 for a small safety margin.
-    maxTotalLLMCalls: 35,
+    // Practical worst case: 6 + (3 × 5) + 1 = 22.
+    // Set to 20 as a moderate ceiling.
+    maxTotalLLMCalls: 20,
     // Whether to use an LLM routing call to select relevant plugin traits
     // before building the system prompt.  When false, all active plugin
     // traits are included unconditionally (cheaper but noisier context).
@@ -62,6 +105,11 @@ export const DEFAULT_COGNITIVE_CONFIG = {
     // of the LLM routing decision.  Prevents adversarial user input from
     // stripping critical plugins (e.g. security, backup, notifications).
     alwaysIncludePlugins: [],
+    // Whether to perform a direct-answer precheck before entering the
+    // full cognitive pipeline.  When true (default), the agent makes a
+    // lightweight LLM call to see if the query can be answered without
+    // tools or multi-step reasoning.  Saves 2-4 LLM calls per simple query.
+    precheckEnabled: true,
     maxHistory: 50,
     systemPrompt: `You are an AI agent with cognitive awareness and tool-calling capabilities. You have access to tools for reading/writing files, listing directories, running commands, checking your cognitive state, and recalling memories.
 
@@ -128,8 +176,9 @@ CRITICAL RULES:
   },
   planner: {
     enabled: true,               // feature flag — set false to disable task decomposition
-    maxSteps: 10,                // max steps in a generated plan
-    minComplexityWords: 20,      // min words for heuristic complexity check
+    maxSteps: 8,                 // max steps in a generated plan (dynamically capped lower for short inputs)
+    stepMaxIterations: 5,        // lmscript iteration budget per plan sub-step (tighter than direct turns)
+    minComplexityWords: 30,      // min words for heuristic complexity check
     autoRetryFailedSteps: false, // auto-retry failed steps (not yet implemented)
     skipDependentOnFailure: true // skip steps that depend on failed ones
   }

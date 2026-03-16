@@ -79,8 +79,8 @@ const MessageList: React.FC<MessageListProps> = ({ messages, isAgentWorking, mes
         </div>
       )}
 
-      {/* Inline thinking indicator — appears after the last message */}
-      {isAgentWorking && <ThinkingIndicator activityLog={activityLog} />}
+      {/* Inline thinking indicator — appears after the last message, hidden during streaming */}
+      {isAgentWorking && !messages.some(m => m._streaming) && <ThinkingIndicator activityLog={activityLog} />}
     </section>
   );
 };

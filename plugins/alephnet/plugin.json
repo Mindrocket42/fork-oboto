@@ -24,6 +24,15 @@
         "label": "AlephNet",
         "component": "components/NetworkStatus.jsx"
       }
+    ],
+    "activityBarItems": [
+      {
+        "id": "network",
+        "label": "AlephNet Network",
+        "icon": "🌐",
+        "action": { "type": "plugin", "target": "alephnet" },
+        "order": 50
+      }
     ]
   },
   "trait": "Use alephnet_think for semantic analysis of text, alephnet_remember/alephnet_recall for persistent semantic memory, alephnet_chat_send for messaging friends, alephnet_friends_list for social connections, alephnet_wallet_balance for token economics, alephnet_coherence_submit_claim for collaborative truth verification, and alephnet_connect to join the distributed mesh network."

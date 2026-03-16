@@ -60,7 +60,8 @@ export function createPluginAPI(pluginName, deps, options = {}) {
     const registeredUIComponents = {
         tabs: [],
         sidebarSections: [],
-        settingsPanels: []
+        settingsPanels: [],
+        activityBarItems: []
     };
 
     // Scoped storage & settings
@@ -459,6 +460,32 @@ export function createPluginAPI(pluginName, deps, options = {}) {
         },
 
         /**
+         * Register an activity bar item (VS Code-style vertical icon bar).
+         *
+         * Activity bar items appear as icon buttons on the far-left bar
+         * and can navigate to tabs, surfaces, plugin pages, or fire custom actions.
+         *
+         * @param {object} item
+         * @param {string} item.id — unique id within this plugin
+         * @param {string} item.label — tooltip / accessible label
+         * @param {string} item.icon — emoji, character, or `svg:` prefixed SVG path
+         * @param {object} item.action — { type: 'tab'|'surface'|'plugin'|'custom', target: string }
+         * @param {number} [item.order=100] — sort order (lower = higher)
+         */
+        registerActivityBarItem(item) {
+            const fullItem = {
+                ...item,
+                id: `plugin:${pluginName}:${item.id}`,
+                pluginName,
+                type: 'plugin-activity-bar'
+            };
+            registeredUIComponents.activityBarItems.push(fullItem);
+            if (eventBus) {
+                eventBus.emit('plugin:ui-changed', { pluginName });
+            }
+        },
+
+        /**
          * Get all registered UI components for this plugin.
          * @returns {object}
          */
@@ -526,6 +553,7 @@ export function createPluginAPI(pluginName, deps, options = {}) {
         registeredUIComponents.tabs.length = 0;
         registeredUIComponents.sidebarSections.length = 0;
         registeredUIComponents.settingsPanels.length = 0;
+        registeredUIComponents.activityBarItems.length = 0;
 
         // Flush storage
         await storage.flush();

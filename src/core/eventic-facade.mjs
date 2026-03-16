@@ -232,11 +232,18 @@ export class EventicFacade {
             if (!provider) {
                 throw new Error('No agentic provider is active. Initialization may have failed — check server logs.');
             }
-            const result = await provider.run(userInput, {
+            const runOpts = {
                 signal: options.signal,
                 model: options.model,
                 ws: options.ws
-            });
+            };
+            // Forward streaming options so that the provider → agent pipeline
+            // can stream tokens directly via the onChunk callback.
+            if (options.onChunk) {
+                runOpts.stream = true;
+                runOpts.onChunk = options.onChunk;
+            }
+            const result = await provider.run(userInput, runOpts);
             // Providers may return a string or { response, streamed, tokenUsage }
             const response = typeof result === 'string' ? result : (result?.response || '');
             const tokenUsage = typeof result === 'object' ? result?.tokenUsage : null;
@@ -271,19 +278,27 @@ export class EventicFacade {
             if (!provider) {
                 throw new Error('No agentic provider is active. Initialization may have failed — check server logs.');
             }
+
+            // Wrap onChunk to track whether any chunks were emitted by the
+            // provider/agent pipeline so we can fall back gracefully.
+            let chunksEmitted = false;
+            const trackingChunk = typeof onChunk === 'function' ? (delta) => {
+                chunksEmitted = true;
+                onChunk(delta);
+            } : onChunk;
+
             const result = await provider.run(userInput, {
                 signal: options.signal,
                 model: options.model,
                 stream: true,
-                onChunk
+                onChunk: trackingChunk
             });
             
-            // Providers may return a string or { response, streamed }
             const responseText = typeof result === 'string' ? result : (result?.response || '');
-            const alreadyStreamed = typeof result === 'object' && result?.streamed;
             
-            // Only emit if the provider didn't already handle streaming itself
-            if (!alreadyStreamed && typeof onChunk === 'function' && responseText) {
+            // Only emit full response as fallback if no chunks were streamed
+            // (e.g. provider doesn't support streaming internally)
+            if (!chunksEmitted && typeof onChunk === 'function' && responseText) {
                 onChunk(responseText);
             }
             

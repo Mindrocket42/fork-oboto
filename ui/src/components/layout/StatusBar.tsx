@@ -11,9 +11,11 @@ import {
   Zap,
   Palette,
   Check,
+  Cpu,
 } from 'lucide-react';
 import type { ProjectStatusData } from '../features/ProjectStatus';
 import type { PersonaInfo } from '../../hooks/usePersona';
+import type { AgenticProviderInfo } from '../../hooks/useChat';
 import CloudSyncIndicator from '../features/CloudSyncIndicator';
 import CloudPresenceBar from '../features/CloudPresenceBar';
 import PersonaSelector from '../features/PersonaSelector';
@@ -37,6 +39,10 @@ interface StatusBarProps {
   activePersonaId?: string | null;
   onSwitchPersona?: (personaId: string) => void;
   onCreatePersona?: (name: string, prompt: string) => void;
+  // Agentic provider props
+  agenticProviders?: AgenticProviderInfo[];
+  activeAgenticProvider?: string | null;
+  onSwitchAgenticProvider?: (providerId: string) => void;
 }
 
 /** VS Code-style status bar pinned to the bottom of the window. */
@@ -58,6 +64,9 @@ const StatusBar: React.FC<StatusBarProps> = ({
   activePersonaId = null,
   onSwitchPersona,
   onCreatePersona,
+  agenticProviders = [],
+  activeAgenticProvider = null,
+  onSwitchAgenticProvider,
 }) => {
   const gitBranch = projectStatus?.gitBranch;
   const projectType = projectStatus?.projectType;
@@ -67,6 +76,12 @@ const StatusBar: React.FC<StatusBarProps> = ({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const pickerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Agentic provider picker state
+  const [showProviderPicker, setShowProviderPicker] = useState(false);
+  const [providerFocusedIndex, setProviderFocusedIndex] = useState(-1);
+  const providerPickerRef = useRef<HTMLDivElement>(null);
+  const providerButtonRef = useRef<HTMLButtonElement>(null);
 
   // Helper to compute initial focused index
   const getInitialFocusedIndex = () => {
@@ -132,6 +147,67 @@ const StatusBar: React.FC<StatusBarProps> = ({
   const formatThemeName = (name: string) =>
     name.charAt(0).toUpperCase() + name.slice(1);
 
+  // --- Agentic provider picker helpers ---
+  const activeProvider = agenticProviders.find(p => p.id === activeAgenticProvider);
+  const activeProviderName = activeProvider?.name ?? 'No Provider';
+
+  const getInitialProviderFocusedIndex = () => {
+    if (agenticProviders.length === 0) return -1;
+    const idx = agenticProviders.findIndex(p => p.id === activeAgenticProvider);
+    return idx >= 0 ? idx : 0;
+  };
+
+  const toggleProviderPicker = () => {
+    setShowProviderPicker(prev => {
+      const next = !prev;
+      setProviderFocusedIndex(next ? getInitialProviderFocusedIndex() : -1);
+      return next;
+    });
+  };
+
+  const closeProviderPicker = () => {
+    setShowProviderPicker(false);
+    setProviderFocusedIndex(-1);
+  };
+
+  // Close provider picker on outside click
+  useEffect(() => {
+    if (!showProviderPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        providerPickerRef.current && !providerPickerRef.current.contains(e.target as Node) &&
+        providerButtonRef.current && !providerButtonRef.current.contains(e.target as Node)
+      ) {
+        closeProviderPicker();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showProviderPicker]);
+
+  // Close provider picker on Escape
+  useEffect(() => {
+    if (!showProviderPicker) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeProviderPicker();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [showProviderPicker]);
+
+  // Focus the provider option at providerFocusedIndex when it changes
+  useEffect(() => {
+    if (providerFocusedIndex >= 0 && providerPickerRef.current) {
+      const options = providerPickerRef.current.querySelectorAll<HTMLElement>('[role="option"]');
+      options[providerFocusedIndex]?.focus();
+    }
+  }, [providerFocusedIndex]);
+
+  const handleProviderSelect = (providerId: string) => {
+    onSwitchAgenticProvider?.(providerId);
+    closeProviderPicker();
+  };
+
   return (
     <footer
       className={`
@@ -189,6 +265,95 @@ const StatusBar: React.FC<StatusBarProps> = ({
         {/* Cloud presence + sync indicator */}
         <CloudPresenceBar />
         <CloudSyncIndicator />
+
+        {/* Agentic provider switcher */}
+        {onSwitchAgenticProvider && agenticProviders.length > 0 && (
+          <div className="relative">
+            <button
+              ref={providerButtonRef}
+              onClick={toggleProviderPicker}
+              className="flex items-center gap-1 hover:bg-white/10 px-1 py-0.5 rounded transition-colors cursor-pointer"
+              title={`Agent: ${activeProviderName} — Click to switch`}
+              aria-haspopup="listbox"
+              aria-expanded={showProviderPicker}
+            >
+              <Cpu size={11} />
+              <span className="hidden sm:inline truncate max-w-[100px]">{activeProviderName}</span>
+            </button>
+
+            {/* Provider picker popup */}
+            {showProviderPicker && (
+              <div
+                ref={providerPickerRef}
+                role="listbox"
+                aria-label="Agentic provider selector"
+                tabIndex={-1}
+                onKeyDown={(e: React.KeyboardEvent) => {
+                  const len = agenticProviders.length;
+                  if (len === 0) return;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setProviderFocusedIndex(prev => (prev + 1) % len);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setProviderFocusedIndex(prev => (prev - 1 + len) % len);
+                  } else if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (providerFocusedIndex >= 0 && providerFocusedIndex < len) {
+                      handleProviderSelect(agenticProviders[providerFocusedIndex].id);
+                    }
+                  }
+                }}
+                className="absolute bottom-full right-0 mb-1 w-56 max-h-72 overflow-y-auto rounded-lg border shadow-xl z-50"
+                style={{
+                  backgroundColor: 'var(--color-surface-raised)',
+                  borderColor: 'var(--color-border)',
+                }}
+              >
+                <div
+                  className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider border-b"
+                  style={{
+                    color: 'var(--color-text-muted)',
+                    borderColor: 'var(--color-border)',
+                  }}
+                >
+                  Switch Agent Provider
+                </div>
+                <div className="py-1">
+                  {agenticProviders.map((provider, index) => {
+                    const isActive = provider.id === activeAgenticProvider;
+                    return (
+                      <button
+                        key={provider.id}
+                        role="option"
+                        aria-selected={isActive}
+                        tabIndex={index === providerFocusedIndex ? 0 : -1}
+                        onClick={() => handleProviderSelect(provider.id)}
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer ${
+                          isActive ? 'bg-indigo-500/10' : 'hover:bg-white/10'
+                        }`}
+                        style={{ color: 'var(--color-text)' }}
+                      >
+                        <Cpu size={11} className={isActive ? 'text-indigo-400' : 'opacity-50'} />
+                        <div className="flex-1 min-w-0">
+                          <span className="block truncate">{provider.name}</span>
+                          {provider.description && (
+                            <span className="block text-[9px] truncate" style={{ color: 'var(--color-text-muted)' }}>
+                              {provider.description}
+                            </span>
+                          )}
+                        </div>
+                        {isActive && (
+                          <Check size={12} style={{ color: 'var(--color-primary)' }} />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Theme chooser */}
         {onThemeChange && (

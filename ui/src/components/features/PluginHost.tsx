@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { wsService } from '../../services/wsService';
 import { compileComponent } from './surface/surfaceCompiler';
@@ -28,6 +28,7 @@ const PluginHost: React.FC<PluginHostProps> = ({
 }) => {
   const [source, setSource] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const sourceReceivedRef = useRef(false);
 
   // Reset state during render when plugin/component changes.
   // This is a React-recommended pattern for synchronising state with props
@@ -44,6 +45,8 @@ const PluginHost: React.FC<PluginHostProps> = ({
 
   // Subscribe to WS for component source and request it
   useEffect(() => {
+    sourceReceivedRef.current = false;
+
     const unsub = wsService.on('plugin:component-source', (payload: unknown) => {
       const data = payload as {
         pluginName: string;
@@ -57,14 +60,42 @@ const PluginHost: React.FC<PluginHostProps> = ({
           setFetchError(data.error);
         } else if (data.source) {
           setSource(data.source);
+          sourceReceivedRef.current = true;
         }
       }
     });
+
+    // Also listen for plugin:error as a fallback — some server-side security
+    // checks may respond with this type instead of plugin:component-source.
+    const unsubError = wsService.on('plugin:error', (payload: unknown) => {
+      const data = payload as { error?: string; pluginName?: string; componentFile?: string };
+      // Only handle errors for this specific plugin+component (if tagged)
+      // and only before we've received the source — use a ref to avoid
+      // stale closure.
+      if (data?.error && !sourceReceivedRef.current
+          && data.pluginName === pluginName
+          && (!data.componentFile || data.componentFile === componentFile)) {
+        setFetchError(data.error);
+      }
+    });
+
+    // Timeout: if no response arrives within 10 seconds, show an error
+    // instead of spinning forever (e.g. if isLocalRequest() fails silently).
+    const timeoutId = setTimeout(() => {
+      if (!sourceReceivedRef.current) {
+        setFetchError(
+          `Timed out loading component "${componentFile}" from plugin "${pluginName}". ` +
+          'The server may not be responding or localhost security check may be failing.'
+        );
+      }
+    }, 10_000);
 
     wsService.sendMessage('plugin:get-component', { pluginName, componentFile });
 
     return () => {
       unsub();
+      unsubError();
+      clearTimeout(timeoutId);
     };
   }, [pluginName, componentFile]);
 
@@ -100,12 +131,23 @@ const PluginHost: React.FC<PluginHostProps> = ({
 
   if (error) {
     return (
-      <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3 m-2">
-        <AlertCircle size={14} className="shrink-0" />
-        <div>
-          <p className="font-medium">Plugin Error</p>
-          <p className="text-[10px] text-red-500 mt-0.5">{error}</p>
+      <div className="flex flex-col items-center gap-3 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded p-4 m-2">
+        <div className="flex items-center gap-2">
+          <AlertCircle size={14} className="shrink-0" />
+          <div>
+            <p className="font-medium">Plugin Error</p>
+            <p className="text-[10px] text-red-500 mt-0.5">{error}</p>
+          </div>
         </div>
+        <button
+          onClick={() => {
+            setFetchError(null);
+            setSource(null);
+          }}
+          className="px-3 py-1 rounded text-[10px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 transition-colors"
+        >
+          Retry
+        </button>
       </div>
     );
   }

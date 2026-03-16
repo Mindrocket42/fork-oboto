@@ -47,17 +47,29 @@ describe('classifyInput', () => {
   });
 
   describe('complex classifications', () => {
+    // After tuning, short "create/build" requests (< 15 words) are classified
+    // as simple to avoid over-decomposition.  Complex patterns only trigger
+    // for inputs >= 15 words, and the action-verb heuristic needs >= 3 verbs
+    // with >= 30 words.
     const complexCases = [
-      'Create a React app with authentication and a dashboard',
-      'Build an API server using Express with JWT auth',
-      'Implement the user registration flow with email verification',
-      'Refactor the database module to use connection pooling',
-      'Set up a new project with TypeScript, ESLint, and testing',
-      'Create a REST API with CRUD operations for users and posts',
+      // Refactoring — always complex when >= 15 words
+      'Refactor the database module to use connection pooling and update all the related service files to use the new module',
+      // Multi-step explicit language (>= 15 words)
+      'First read the config file, then update the database connection settings and finally restart the server process to apply changes',
+      // Project-scope work with "using/including" pattern (>= 15 words)
+      'Create a new application project with authentication module using JWT tokens including both login and registration endpoints plus database migrations',
+      // Multiple action verbs (>= 30 words, >= 3 verbs)
+      'We need to create the user model, implement the authentication middleware, update the routes to use the new auth system, and fix the existing tests to work with the changes across the whole codebase',
     ];
 
     it.each(complexCases)('classifies "%s" as complex', (input) => {
       expect(classifyInput(input)).toBe('complex');
+    });
+
+    // Verify that short "create" requests are now simple (intentional threshold change)
+    it('classifies short create/build requests as simple (< 15 words)', () => {
+      expect(classifyInput('Create a React app with authentication and a dashboard')).toBe('simple');
+      expect(classifyInput('Build an API server using Express with JWT auth')).toBe('simple');
     });
   });
 
@@ -202,7 +214,10 @@ describe('generatePlan', () => {
       }),
     });
 
-    const plan = await generatePlan('big task', mockCallLLM, { maxSteps: 5 });
+    // Input must be >= 50 words for dynamicMax to allow 5+ steps.
+    // Short inputs (< 50 words) are dynamically capped at 4 steps.
+    const longInput = Array.from({ length: 60 }, (_, i) => `word${i}`).join(' ');
+    const plan = await generatePlan(longInput, mockCallLLM, { maxSteps: 5 });
     expect(plan.steps).toHaveLength(5);
   });
 

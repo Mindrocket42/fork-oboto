@@ -6,6 +6,8 @@ import InputArea from './components/chat/InputArea';
 import GlobalPalette from './components/features/GlobalPalette';
 import LockScreen from './components/features/LockScreen';
 import Sidebar from './components/layout/Sidebar';
+import ActivityBar from './components/layout/ActivityBar';
+import type { ActivityBarItem } from './components/layout/ActivityBar';
 import SettingsDialog from './components/features/SettingsDialog';
 import DirectoryPicker from './components/features/DirectoryPicker';
 import TabBar from './components/layout/TabBar';
@@ -47,6 +49,7 @@ import { useMessageActions } from './hooks/useMessageActions';
 import { useSendHandler } from './hooks/useSendHandler';
 import { usePlugins } from './hooks/usePlugins';
 import PluginWelcomePage from './components/features/PluginWelcomePage';
+import PluginHost from './components/features/PluginHost';
 import { globalActions, inlineCommands } from './constants/commands';
 
 function App() {
@@ -108,13 +111,16 @@ function App() {
   );
   
   const workspace = useWorkspaceState(
-    tabManager.tabs, 
-    tabManager.activeTabId, 
-    tabManager.setTabs, 
-    tabManager.setActiveTabId, 
-    projectStatus?.cwd, 
-    isConnected, 
-    setCwd
+    tabManager.tabs,
+    tabManager.activeTabId,
+    tabManager.setTabs,
+    tabManager.setActiveTabId,
+    projectStatus?.cwd,
+    isConnected,
+    setCwd,
+    ui.getLayoutConfig,
+    ui.setLayoutConfig,
+    tabManager.handleSurfaceClick
   );
 
   const { messageActions } = useMessageActions({ 
@@ -128,6 +134,64 @@ function App() {
     const activeTab = tabManager.tabs.find(t => t.id === tabManager.activeTabId);
     return activeTab?.type === 'surface' ? activeTab.surfaceId : undefined;
   }, [tabManager.tabs, tabManager.activeTabId]);
+
+  // ── Activity Bar ──────────────────────────────────────────────────────
+  // Build activity bar items: Chat (always first) + plugin-contributed items
+  const activityBarItems = useMemo<ActivityBarItem[]>(() => {
+    const coreItems: ActivityBarItem[] = [
+      {
+        id: 'chat',
+        label: 'Chat',
+        icon: 'svg:M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+        action: { type: 'tab', target: 'chat' },
+        order: 0,
+      },
+    ];
+
+    // Plugin-contributed activity bar items
+    const pluginItems: ActivityBarItem[] = (uiManifest.activityBarItems || []).map(item => ({
+      id: item.id,
+      label: item.label,
+      icon: item.icon || '🔌',
+      action: item.action,
+      order: item.order ?? 100,
+      pluginName: item.pluginName,
+    }));
+
+    return [...coreItems, ...pluginItems];
+  }, [uiManifest.activityBarItems]);
+
+  // Determine the active activity bar item based on current tab
+  const activeActivityBarItemId = useMemo(() => {
+    const activeTabId = tabManager.activeTabId;
+    // Check if any plugin activity bar item matches
+    for (const item of (uiManifest.activityBarItems || [])) {
+      if (item.action.type === 'tab' && item.action.target === activeTabId) return item.id;
+      if (item.action.type === 'plugin' && activeTabId === `plugin:${item.action.target}`) return item.id;
+      if (item.action.type === 'surface' && activeTabId === `surface:${item.action.target}`) return item.id;
+    }
+    // Default: if on chat tab
+    if (activeTabId === 'chat') return 'chat';
+    return undefined;
+  }, [tabManager.activeTabId, uiManifest.activityBarItems]);
+
+  // Handle activity bar item clicks
+  const handleActivityBarItemClick = useCallback((item: ActivityBarItem) => {
+    switch (item.action.type) {
+      case 'tab':
+        tabManager.setActiveTabId(item.action.target);
+        break;
+      case 'surface':
+        tabManager.handleSurfaceClick(item.action.target);
+        break;
+      case 'plugin':
+        tabManager.handlePluginClick(item.action.target);
+        break;
+      case 'custom':
+        // Custom actions can be handled by plugin event listeners
+        break;
+    }
+  }, [tabManager]);
 
   // ── Model filtering: only show models from enabled providers ──────────
   const enabledProviders = useMemo(
@@ -356,7 +420,7 @@ function App() {
       )}
 
       {/* Header */}
-      <div className={`transition-all duration-700 ${ui.isLocked ? 'blur-[40px] grayscale' : ''}`}>
+      {ui.showHeader && <div className={`transition-all duration-700 ${ui.isLocked ? 'blur-[40px] grayscale' : ''}`}>
         <Header
           isAgentWorking={isWorking}
           queuedMessageCount={queueCount}
@@ -388,10 +452,15 @@ function App() {
           onWhatIsThis={() => help.toggleWhatIsThis()}
           onResetHelp={() => helpTracking.resetAll()}
         />
-      </div>
+      </div>}
 
       <div className={`flex flex-1 min-h-0 w-full relative transition-all duration-700 ${ui.isLocked ? 'blur-[40px] grayscale' : ''}`}>
-        <Sidebar
+        {ui.showActivityBar && <ActivityBar
+          items={activityBarItems}
+          activeItemId={activeActivityBarItemId}
+          onItemClick={handleActivityBarItemClick}
+        />}
+        {ui.showSidebar && <Sidebar
           width={ui.sidebarWidth}
           projectStatus={projectStatus}
           fileTree={fileTree}
@@ -414,10 +483,10 @@ function App() {
           onEnablePlugin={enablePlugin}
           onDisablePlugin={disablePlugin}
           onPluginClick={tabManager.handlePluginClick}
-        />
+        />}
 
-        {/* Resizer Handle */}
-        <div
+        {/* Resizer Handle (hidden when sidebar is hidden) */}
+        {ui.showSidebar && <div
           className={`w-[5px] cursor-col-resize transition-colors z-50 flex-shrink-0 flex items-center justify-center group
             ${ui.isResizingSidebar
               ? 'bg-indigo-500'
@@ -433,10 +502,10 @@ function App() {
             <div className="w-[3px] h-[3px] rounded-full bg-zinc-400" />
             <div className="w-[3px] h-[3px] rounded-full bg-zinc-400" />
           </div>
-        </div>
+        </div>}
 
         <main className="flex-1 flex flex-col relative min-h-0 bg-[#080808] min-w-0">
-          <TabBar
+          {ui.showTabBar && <TabBar
             tabs={tabManager.visibleTabs}
             activeTabId={tabManager.activeTabId}
             onSelectTab={tabManager.setActiveTabId}
@@ -450,7 +519,7 @@ function App() {
             onRenameConversation={renameConversation}
             onDeleteConversation={deleteConversation}
             onClearConversation={clearConversation}
-          />
+          />}
 
           <div className="flex-1 flex min-h-0 min-w-0 relative">
             <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -548,21 +617,32 @@ function App() {
 
 
 
-            {tabManager.tabs.filter(t => t.type === 'plugin').map(tab => (
-              <div
-                key={tab.id}
-                className={`flex-1 flex flex-col w-full min-w-0 min-h-0 ${tabManager.activeTabId === tab.id ? '' : 'hidden'}`}
-              >
-                <PluginWelcomePage
-                  pluginName={tab.pluginName!}
-                  plugin={pluginsList.find(p => p.name === tab.pluginName)}
-                  onEnable={enablePlugin}
-                  onDisable={disablePlugin}
-                />
-              </div>
-            ))}
+            {tabManager.tabs.filter(t => t.type === 'plugin').map(tab => {
+              // Check if this plugin declared a tab component in its manifest
+              const pluginTab = uiManifest.tabs.find(t => t.pluginName === tab.pluginName);
+              return (
+                <div
+                  key={tab.id}
+                  className={`flex-1 flex flex-col w-full min-w-0 min-h-0 ${tabManager.activeTabId === tab.id ? '' : 'hidden'}`}
+                >
+                  {pluginTab?.component ? (
+                    <PluginHost
+                      pluginName={tab.pluginName!}
+                      componentFile={pluginTab.component}
+                    />
+                  ) : (
+                    <PluginWelcomePage
+                      pluginName={tab.pluginName!}
+                      plugin={pluginsList.find(p => p.name === tab.pluginName)}
+                      onEnable={enablePlugin}
+                      onDisable={disablePlugin}
+                    />
+                  )}
+                </div>
+              );
+            })}
 
-              <InputArea
+              {ui.showInputArea && <InputArea
                 isAgentWorking={isWorking}
                 onSend={handleSend}
                 onStop={stop}
@@ -576,7 +656,7 @@ function App() {
                 activityLog={activityLog}
                 queueCount={queueCount}
                 disabled={!hasEnabledProvider}
-              />
+              />}
             </div>
 
             {/* Task panel inline within conversation area */}
@@ -588,7 +668,7 @@ function App() {
         </main>
       </div>
 
-      <div className={`transition-all duration-700 ${ui.isLocked ? 'blur-[40px] grayscale' : ''}`}>
+      {ui.showStatusBar && <div className={`transition-all duration-700 ${ui.isLocked ? 'blur-[40px] grayscale' : ''}`}>
         <StatusBar
           isConnected={isConnected}
           isAgentWorking={isWorking}
@@ -607,8 +687,11 @@ function App() {
           activePersonaId={activePersonaId}
           onSwitchPersona={switchPersona}
           onCreatePersona={createPersona}
+          agenticProviders={agenticProviders}
+          activeAgenticProvider={activeAgenticProvider}
+          onSwitchAgenticProvider={switchAgenticProvider}
         />
-      </div>
+      </div>}
 
       <LogPanel
         logs={allLogs}

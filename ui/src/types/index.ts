@@ -177,6 +177,9 @@ export interface Message {
 
   // Marks a response message still being built (live streaming)
   _pending?: boolean;
+
+  // Marks a message that is actively receiving streamed tokens from the LLM
+  _streaming?: boolean;
 }
 
 export interface Command {

@@ -21,6 +21,7 @@
 
 import { AgenticProvider } from './base-provider.mjs';
 import { CognitiveAgent } from './cognitive/agent.mjs';
+import { isPathWithinRoot } from '../../lib/path-validation.mjs';
 import { consoleStyler } from '../../ui/console-styler.mjs';
 import { emitStatus } from '../status-reporter.mjs';
 import { classifyInput, generatePlan, executePlan, synthesizeResponse } from './cognitive/task-planner.mjs';
@@ -39,6 +40,14 @@ export class CognitiveProvider extends AgenticProvider {
     async initialize(deps) {
         await super.initialize(deps);
 
+        // ── Load workspace-level sentient config override ────────────────
+        let cognitiveConfig = deps.cognitiveConfig || {};
+        if (deps.workingDir) {
+            cognitiveConfig = await this._loadWorkspaceSentientOverride(
+                cognitiveConfig, deps.workingDir
+            );
+        }
+
         // Create the cognitive agent with ai-man's dependencies
         this._agent = new CognitiveAgent(
             {
@@ -48,17 +57,44 @@ export class CognitiveProvider extends AgenticProvider {
                 workingDir: deps.workingDir,
                 facade: deps.facade
             },
-            // Pass any cognitive-specific config overrides
-            deps.cognitiveConfig || {}
+            cognitiveConfig
         );
 
         // Initialize the cognitive state with a few physics ticks
-        const initTicks = deps.cognitiveConfig?.initTicks ?? 10;
+        const initTicks = cognitiveConfig?.initTicks ?? 10;
         for (let i = 0; i < initTicks; i++) {
             this._agent.cognitive.tick();
         }
 
         consoleStyler.log('agentic', `Initialized cognitive provider — coherence=${this._agent.cognitive.coherence.toFixed(3)}, entropy=${this._agent.cognitive.entropy.toFixed(3)}`);
+
+        // ── Initialize SentientCognitiveCore if sentient mode is enabled ──
+        if (this._agent.isSentientPending()) {
+            const sentientOk = await this._agent.initSentientCore({
+                eventBus: deps.eventBus,
+                workingDir: deps.workingDir,
+            });
+
+            if (sentientOk) {
+                // Re-run init ticks on the new sentient core
+                const sentientInitTicks = cognitiveConfig?.sentient?.initTicks ?? initTicks;
+                for (let i = 0; i < sentientInitTicks; i++) {
+                    this._agent.cognitive.tick();
+                }
+
+                consoleStyler.log('agentic',
+                    `SentientCognitiveCore active — coherence=${this._agent.cognitive.coherence.toFixed(3)}`
+                );
+
+                // Start background tick loop if enabled (default: true)
+                const bgTick = cognitiveConfig?.sentient?.backgroundTick !== false;
+                if (bgTick && this._agent.cognitive.startBackground) {
+                    this._agent.cognitive.startBackground();
+                    this._sentientBackgroundActive = true;
+                    consoleStyler.log('agentic', 'Sentient background tick loop started');
+                }
+            }
+        }
 
         // --- lmscript runtime setup (dynamic import to avoid crash if package missing) ---
         try {
@@ -177,7 +213,6 @@ export class CognitiveProvider extends AgenticProvider {
             const plannerConfig = this._agent.config.planner || {};
             const ws = options?.ws || this._deps.ws;
             let responseText;
-            let streamed = false;
 
             const useTaskPlanner = plannerConfig.enabled !== false
                 && classifyInput(input, plannerConfig) === 'complex';
@@ -187,7 +222,12 @@ export class CognitiveProvider extends AgenticProvider {
                 responseText = await this._runWithPlan(input, options, ws, plannerConfig);
             } else {
                 // Simple / planner-disabled path — direct turn
-                const result = await this._agent.turn(input, { signal: options.signal });
+                // Forward onChunk so the agent can stream tokens directly
+                const turnOpts = { signal: options.signal };
+                if (options.onChunk) {
+                    turnOpts.onChunk = options.onChunk;
+                }
+                const result = await this._agent.turn(input, turnOpts);
                 responseText = result.response;
                 // Capture token usage from cognitive agent for the response message
                 if (result.tokenUsage) {
@@ -199,12 +239,6 @@ export class CognitiveProvider extends AgenticProvider {
                 }
             }
 
-            // If streaming was requested, emit the full response as a single chunk
-            if (options.stream && typeof options.onChunk === 'function') {
-                options.onChunk(responseText);
-                streamed = true;
-            }
-
             // 3. Save assistant response to history IMMEDIATELY after receiving it
             emitStatus('Saving conversation history');
             const hmAfter = getHistoryManager();
@@ -212,7 +246,7 @@ export class CognitiveProvider extends AgenticProvider {
                 hmAfter.addMessage('assistant', responseText);
             }
 
-            return { response: responseText, streamed, tokenUsage: this._lastTokenUsage || null };
+            return { response: responseText, tokenUsage: this._lastTokenUsage || null };
         } finally {
             // Ensure the tracker is stopped even if an error occurs
             if (this._agent?.stopTracking) {
@@ -247,7 +281,7 @@ export class CognitiveProvider extends AgenticProvider {
         };
 
         const plan = await generatePlan(input, callLLM, {
-            maxSteps: plannerConfig.maxSteps || 10,
+            maxSteps: plannerConfig.maxSteps || 8,
             signal: options.signal,
         });
 
@@ -277,9 +311,17 @@ export class CognitiveProvider extends AgenticProvider {
         }
 
         // Execute plan steps
+        // Per-step iteration budget: sub-steps get a tighter iteration limit
+        // and no continuations (the plan itself provides sequential progression).
+        const stepIterLimit = plannerConfig.stepMaxIterations || 5;
         const { stepResults } = await executePlan(plan, {
             executeTurn: async (instruction, opts) => {
-                return this._agent.turn(instruction, { ...options, ...opts });
+                return this._agent.turn(instruction, {
+                    ...options,
+                    ...opts,
+                    maxIterations: stepIterLimit,
+                    maxContinuations: 0,
+                });
             },
             onUpdate: (updatedPlan) => {
                 // Stream step updates to the UI
@@ -332,7 +374,102 @@ export class CognitiveProvider extends AgenticProvider {
         };
     }
 
+    /**
+     * Load workspace-level sentient configuration override from
+     * `{workingDir}/.ai-man/sentient.json`.  Merges into the provided
+     * cognitiveConfig, allowing per-workspace enable/disable of sentient
+     * mode and background ticking.
+     *
+     * @param {Object} cognitiveConfig - Base config from deps
+     * @param {string} workingDir - Workspace directory
+     * @returns {Promise<Object>} Merged config
+     * @private
+     */
+    async _loadWorkspaceSentientOverride(cognitiveConfig, workingDir) {
+        // Allowed keys with expected types — prevents prototype pollution,
+        // unexpected overrides, and malformed value types.
+        const ALLOWED_SENTIENT_KEYS = {
+            enabled: 'boolean',
+            primeCount: 'number',
+            tickRate: 'number',
+            backgroundTick: 'boolean',
+            coherenceThreshold: 'number',
+            objectivityThreshold: 'number',
+            adaptiveProcessing: 'boolean',
+            adaptiveMaxSteps: 'number',
+            adaptiveCoherenceThreshold: 'number',
+            name: 'string',
+            memoryPath: 'string',
+            initTicks: 'number',
+            statePersistence: 'boolean',
+            statePath: 'string',
+            settleTicksPerInput: 'number',
+        };
+
+        try {
+            const { resolve } = await import('path');
+            const { readFile } = await import('fs/promises');
+            const overridePath = resolve(workingDir, '.ai-man', 'sentient.json');
+            const data = await readFile(overridePath, 'utf-8');
+            const raw = JSON.parse(data);
+
+            // Only pick recognised keys to prevent __proto__ pollution
+            // and injection of unexpected config paths
+            const override = Object.create(null);
+            for (const [key, expectedType] of Object.entries(ALLOWED_SENTIENT_KEYS)) {
+                if (key in raw && typeof raw[key] === expectedType) {
+                    override[key] = raw[key];
+                }
+            }
+
+            // Validate path-type keys stay within the workspace to prevent
+            // path traversal attacks via malicious sentient.json files.
+            // Delegates to the shared isPathWithinRoot() utility which uses
+            // realpath() with parent-walking on ENOENT.
+            for (const pathKey of ['memoryPath', 'statePath']) {
+                if (override[pathKey]) {
+                    const resolvedPath = resolve(workingDir, override[pathKey]);
+                    const safe = await isPathWithinRoot(resolvedPath, workingDir);
+                    if (!safe) {
+                        consoleStyler.log('agentic',
+                            `Ignoring ${pathKey} from sentient.json — path traverses outside workspace`
+                        );
+                        delete override[pathKey];
+                    }
+                }
+            }
+
+            // Merge override into the sentient section of cognitiveConfig
+            const merged = { ...cognitiveConfig };
+            merged.sentient = {
+                ...(merged.sentient || {}),
+                ...override,
+            };
+
+            consoleStyler.log('agentic',
+                `Loaded workspace sentient override from ${overridePath}`
+            );
+            return merged;
+        } catch (_e) {
+            // No override file — use defaults
+            return cognitiveConfig;
+        }
+    }
+
     async dispose() {
+        // Stop sentient background tick loop
+        if (this._sentientBackgroundActive && this._agent?.cognitive?.stopBackground) {
+            this._agent.cognitive.stopBackground();
+            this._sentientBackgroundActive = false;
+            consoleStyler.log('agentic', 'Sentient background tick loop stopped');
+        }
+
+        // Save sentient state before disposing
+        if (this._agent?.isSentientEnabled?.()) {
+            await this._agent.saveSentientState();
+            consoleStyler.log('agentic', 'Sentient state saved');
+        }
+
         if (this._agent) {
             this._agent.reset();
             this._agent = null;

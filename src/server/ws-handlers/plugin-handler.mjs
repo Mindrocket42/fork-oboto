@@ -16,6 +16,25 @@ import { validateSettings } from '../../plugins/plugin-settings-handlers.mjs';
 import { consoleStyler } from '../../ui/console-styler.mjs';
 
 /**
+ * Extract the actual payload from a WebSocket message.
+ *
+ * The UI client's `wsService.sendMessage(type, payload)` serialises messages as
+ * `{ type, payload: { …fields } }`, but handlers historically destructure fields
+ * directly from `data`.  This helper transparently supports both shapes so that
+ * handlers work regardless of whether the caller places fields at the top level
+ * (internal dispatch) or inside `payload` (UI client).
+ *
+ * @param {object} data — the full parsed WS message
+ * @returns {object} — the object to destructure handler-specific fields from
+ */
+function extractPayload(data) {
+    if (data.payload && typeof data.payload === 'object' && !Array.isArray(data.payload)) {
+        return data.payload;
+    }
+    return data;
+}
+
+/**
  * Resolve the PluginManager from the WS context.
  * @param {object} ctx
  * @returns {import('../../plugins/plugin-manager.mjs').PluginManager|null}
@@ -42,11 +61,19 @@ function isLocalRequest(ctx) {
     if (req?.headers?.['x-forwarded-for']) {
         return false;
     }
+    // Try multiple paths to obtain the remote address — different WS library
+    // versions and Node.js versions expose this in different places.
     const addr =
         req?.socket?.remoteAddress
+        || req?.connection?.remoteAddress
         || ws?._socket?.remoteAddress
+        || ws?.remoteAddress
         || null;
-    if (!addr) return false;
+    if (!addr) {
+        // Cannot determine origin — deny by default for security.
+        // Tests should mock req.socket.remoteAddress = '127.0.0.1'.
+        return false;
+    }
     return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
@@ -89,7 +116,7 @@ export const handlers = {
             return;
         }
 
-        const { name } = data;
+        const { name } = extractPayload(data);
         if (!name) {
             ws.send(JSON.stringify({ type: 'plugin:error', payload: { error: 'Plugin name required' } }));
             return;
@@ -123,7 +150,7 @@ export const handlers = {
             return;
         }
 
-        const { name } = data;
+        const { name } = extractPayload(data);
         if (!name) {
             ws.send(JSON.stringify({ type: 'plugin:error', payload: { error: 'Plugin name required' } }));
             return;
@@ -157,7 +184,7 @@ export const handlers = {
             return;
         }
 
-        const { name } = data;
+        const { name } = extractPayload(data);
         if (!name) {
             ws.send(JSON.stringify({ type: 'plugin:error', payload: { error: 'Plugin name required' } }));
             return;
@@ -185,7 +212,7 @@ export const handlers = {
         if (!pluginManager) {
             ws.send(JSON.stringify({
                 type: 'plugin:ui-manifest',
-                payload: { tabs: [], sidebarSections: [], settingsPanels: [] }
+                payload: { tabs: [], sidebarSections: [], settingsPanels: [], activityBarItems: [] }
             }));
             return;
         }
@@ -201,9 +228,21 @@ export const handlers = {
      */
     'plugin:get-component': async (data, ctx) => {
         const { ws } = ctx;
+        const msg = extractPayload(data);
         // Component source contains plugin code — restrict to localhost
         if (!isLocalRequest(ctx)) {
-            ws.send(JSON.stringify({ type: 'plugin:error', payload: { error: 'Component source is only available from localhost' } }));
+            // Respond with plugin:component-source (not plugin:error) so
+            // PluginHost receives the message and shows the error instead
+            // of spinning indefinitely.
+            ws.send(JSON.stringify({
+                type: 'plugin:component-source',
+                payload: {
+                    pluginName: msg.pluginName || null,
+                    componentFile: msg.componentFile || null,
+                    source: null,
+                    error: 'Component source is only available from localhost'
+                }
+            }));
             return;
         }
         const pluginManager = getPluginManager(ctx);
@@ -216,7 +255,7 @@ export const handlers = {
             return;
         }
 
-        const { pluginName, componentFile } = data;
+        const { pluginName, componentFile } = msg;
         if (!pluginName || !componentFile) {
             ws.send(JSON.stringify({
                 type: 'plugin:component-source',
@@ -253,7 +292,7 @@ export const handlers = {
             return;
         }
 
-        const { name } = data;
+        const { name } = extractPayload(data);
         const plugin = pluginManager.getPlugin(name);
         if (!plugin || !plugin.api) {
             ws.send(JSON.stringify({ type: 'plugin:settings', payload: { name, settings: {} } }));
@@ -283,7 +322,7 @@ export const handlers = {
             return;
         }
 
-        const { name, settings } = data;
+        const { name, settings } = extractPayload(data);
         const plugin = pluginManager.getPlugin(name);
         if (!plugin || !plugin.api) {
             ws.send(JSON.stringify({ type: 'plugin:error', payload: { error: `Plugin '${name}' not active` } }));
@@ -353,7 +392,7 @@ export const handlers = {
             return;
         }
 
-        const { spec, target } = data;
+        const { spec, target } = extractPayload(data);
         if (!spec) {
             ws.send(JSON.stringify({ type: 'plugin:error', payload: { error: 'Plugin spec is required' } }));
             return;
@@ -416,7 +455,7 @@ export const handlers = {
             return;
         }
 
-        const { name, cleanData, target } = data;
+        const { name, cleanData, target } = extractPayload(data);
         if (!name) {
             ws.send(JSON.stringify({ type: 'plugin:error', payload: { error: 'Plugin name is required' } }));
             return;
@@ -469,7 +508,7 @@ export const handlers = {
             return;
         }
 
-        const { name, target } = data;
+        const { name, target } = extractPayload(data);
         if (!name) {
             ws.send(JSON.stringify({ type: 'plugin:error', payload: { error: 'Plugin name is required' } }));
             return;

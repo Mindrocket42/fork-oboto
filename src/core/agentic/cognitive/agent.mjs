@@ -30,8 +30,60 @@ import { z } from 'zod';
 import { CognitiveCore } from './cognitive.mjs';
 import { resolveCognitiveConfig } from './config.mjs';
 import { ActivityTracker } from '../../activity-tracker.mjs';
-import { emitStatus, summarizeInput, describeToolCall } from '../../status-reporter.mjs';
+import { emitStatus, emitCommentary, summarizeInput, describeToolCall, buildToolRoundNarrative } from '../../status-reporter.mjs';
 import { isRetryableError, isCancellationError } from '../../ai-provider/utils.mjs';
+import { checkSentientAvailability } from './sentient-bridge.mjs';
+import { isPathWithinRoot } from '../../../lib/path-validation.mjs';
+
+/**
+ * Abort reason used by the empty-iteration early-exit AbortController.
+ * Extracted as a constant so the abort site and detection site stay in sync.
+ */
+const EMPTY_ITERATION_ABORT_REASON = 'empty-iteration-limit';
+
+/**
+ * Direct-answer precheck: the model answers immediately or signals it
+ * needs tools.  Mirrors the eventic loop's precheck pattern but adapted
+ * for the cognitive agent.  The model either answers directly or returns
+ * the sentinel to enter the full cognitive pipeline.
+ */
+const PROCEED_SENTINEL = '___AGENT_PROCEED___';
+const PRECHECK_PROMPT = `Answer the following directly if you can. If the request is too vague, ask one clarifying question. If it requires tools, file access, or multi-step reasoning, respond with exactly: ${PROCEED_SENTINEL}`;
+
+/**
+ * Evaluate a text response inline — returns { action, guidance }.
+ * Used by the precheck to validate direct answers before accepting them.
+ * Mirrors the eventic loop's evaluateTextResponse heuristic.
+ *
+ * @param {string} content - LLM response text
+ * @param {string} input - Original user input
+ * @param {number} retryCount - Current retry count
+ * @returns {{action: string, guidance: string}}
+ */
+function evaluateTextResponse(content, input, retryCount) {
+  // Short input + non-trivial response → accept
+  if (input.trim().length < 50 && content.length > 20) {
+    return { action: 'accept', guidance: '' };
+  }
+  // Extremely terse response to a long/complex input → retry
+  if (input.length > 200 && content.length < 30 && retryCount < 2) {
+    return {
+      action: 'retry',
+      guidance: 'Response is too brief for the complexity of the question. Provide more detail.'
+    };
+  }
+  // Bare refusal without explanation → retry
+  const lower = content.toLowerCase();
+  if ((lower.includes("i can't") || lower.includes("i cannot")) &&
+      !lower.includes('because') && !lower.includes('however') &&
+      retryCount < 2) {
+    return {
+      action: 'retry',
+      guidance: 'You said you cannot do something. Explain why, or attempt an alternative approach.'
+    };
+  }
+  return { action: 'accept', guidance: '' };
+}
 
 /**
  * Action verbs that indicate tool-calling intent when preceded by phrases
@@ -105,7 +157,14 @@ class CognitiveAgent {
     this.engine = deps.engine;
     this.facade = deps.facade;
 
-    // Initialize cognitive core
+    // Initialize cognitive core — start with the lightweight CognitiveCore.
+    // If sentient mode is enabled, the provider's initialize() will call
+    // initSentientCore() to upgrade to SentientCognitiveCore after
+    // construction. Availability checks are deferred to initSentientCore()
+    // to avoid synchronous CJS module loading via createRequire() during
+    // construction.
+    this._sentientEnabled = false;
+    this._sentientPending = !!this.config.sentient?.enabled;
     this.cognitive = new CognitiveCore(this.config.cognitive);
 
     // Activity tracker for periodic status heartbeat
@@ -161,6 +220,195 @@ class CognitiveAgent {
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // Path safety
+  // ════════════════════════════════════════════════════════════════════
+
+  /**
+   * Verify that a resolved path is confined within the workspace directory.
+   * Prevents path traversal attacks from user-controlled config values
+   * like `statePath` and `memoryPath` in `.ai-man/sentient.json`.
+   *
+   * Uses `fs.promises.realpath()` to resolve symlinks before comparison,
+   * preventing symlink-based traversal (e.g. `.ai-man/sentient-memory → /etc/sensitive`).
+   * If the target path does not exist yet (ENOENT), recursively checks the parent directory.
+   *
+   * @param {string} targetPath - Resolved absolute path to check
+   * @param {string} workingDir - Workspace root directory
+   * @returns {Promise<boolean>} true if targetPath is within workingDir
+   * @private
+   * @static
+   */
+  static async _isPathSafe(targetPath, workingDir) {
+    return isPathWithinRoot(targetPath, workingDir);
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Sentient Core Initialisation
+  // ════════════════════════════════════════════════════════════════════
+
+  /**
+   * Initialize the SentientCognitiveCore, replacing the lightweight CognitiveCore.
+   * Called by CognitiveProvider.initialize() after construction when sentient
+   * mode is enabled.  Uses dynamic import to avoid top-level dependency on
+   * the sentient-cognitive-core module.
+   *
+   * @param {Object} [options]
+   * @param {import('events').EventEmitter} [options.eventBus]
+   * @param {string} [options.workingDir]
+   * @returns {Promise<boolean>} true if sentient core was initialized successfully
+   */
+  async initSentientCore(options = {}) {
+    if (!this._sentientPending) return false;
+
+    // Check availability of sentient-core.js and @aleph-ai/tinyaleph
+    const availability = checkSentientAvailability();
+    if (!availability.available) {
+      console.warn(`[CognitiveAgent] Sentient mode requested but unavailable: ${availability.error}. Using lightweight CognitiveCore.`);
+      this._sentientPending = false;
+      return false;
+    }
+
+    try {
+      const { SentientCognitiveCore } = await import('./sentient-cognitive-core.mjs');
+
+      const sentientConfig = {
+        ...this.config.sentient,
+        eventBus: options.eventBus || this.eventBus,
+      };
+
+      // Resolve memory path to workspace directory
+      if (!sentientConfig.memoryPath && options.workingDir) {
+        const { resolve } = await import('path');
+        sentientConfig.memoryPath = resolve(
+          options.workingDir, '.ai-man', 'sentient-memory'
+        );
+      }
+
+      // Validate user-supplied memoryPath stays within the workspace
+      if (sentientConfig.memoryPath && options.workingDir) {
+        const { resolve } = await import('path');
+        const resolvedMemPath = resolve(sentientConfig.memoryPath);
+        const resolvedWorkDir = resolve(options.workingDir);
+        if (!(await CognitiveAgent._isPathSafe(resolvedMemPath, resolvedWorkDir))) {
+          console.warn('[CognitiveAgent] memoryPath traverses outside workspace — ignoring');
+          sentientConfig.memoryPath = resolve(resolvedWorkDir, '.ai-man', 'sentient-memory');
+        }
+      }
+
+      const sentientCore = new SentientCognitiveCore(sentientConfig);
+
+      // Await async initialisation (SMF axis label import) so
+      // the first getStateContext() call returns proper labels.
+      await sentientCore.ensureReady();
+
+      // Load persisted state if available
+      if (sentientConfig.statePersistence) {
+        await this._loadSentientState(sentientCore, sentientConfig, options.workingDir);
+      }
+
+      // Replace the placeholder CognitiveCore
+      this.cognitive = sentientCore;
+      this._sentientEnabled = true;
+      this._sentientPending = false;
+
+      console.log('[CognitiveAgent] SentientCognitiveCore initialized successfully');
+      return true;
+    } catch (err) {
+      console.warn('[CognitiveAgent] Failed to init SentientCognitiveCore:', err.message);
+      this._sentientPending = false;
+      return false;
+    }
+  }
+
+  /**
+   * Load persisted sentient state from disk.
+   * @private
+   */
+  async _loadSentientState(sentientCore, sentientConfig, workingDir) {
+    try {
+      const { resolve } = await import('path');
+      const { readFile } = await import('fs/promises');
+      const statePath = sentientConfig.statePath
+        || (workingDir && resolve(workingDir, '.ai-man', 'sentient-state.json'));
+      if (!statePath) return;
+
+      // Validate that statePath is within the workspace
+      if (workingDir && !(await CognitiveAgent._isPathSafe(resolve(statePath), resolve(workingDir)))) {
+        console.warn('[CognitiveAgent] statePath traverses outside workspace — skipping load');
+        return;
+      }
+
+      const data = await readFile(statePath, 'utf-8');
+      const parsed = JSON.parse(data);
+      sentientCore.loadFromJSON(parsed);
+      console.log('[CognitiveAgent] Loaded sentient state from', statePath);
+    } catch (e) {
+      // ENOENT is expected (no persisted state yet) — anything else
+      // (corrupted JSON, permission errors) deserves a warning so users
+      // know their state file has a problem.
+      if (e.code !== 'ENOENT') {
+        console.warn('[CognitiveAgent] Failed to load sentient state:', e.message);
+      }
+    }
+  }
+
+  /**
+   * Save sentient state to disk.
+   * @returns {Promise<void>}
+   */
+  async saveSentientState() {
+    if (!this._sentientEnabled || !this.cognitive.toJSON) return;
+
+    try {
+      const { resolve } = await import('path');
+      const { writeFile, mkdir } = await import('fs/promises');
+      const statePath = this.config.sentient?.statePath
+        || (this.workingDir && resolve(this.workingDir, '.ai-man', 'sentient-state.json'));
+      if (!statePath) return;
+
+      // Validate that statePath is within the workspace to prevent path traversal
+      if (this.workingDir && !(await CognitiveAgent._isPathSafe(resolve(statePath), resolve(this.workingDir)))) {
+        console.warn('[CognitiveAgent] statePath traverses outside workspace — skipping save');
+        return;
+      }
+
+      // Ensure directory exists
+      const dir = resolve(statePath, '..');
+      await mkdir(dir, { recursive: true });
+
+      const data = JSON.stringify(this.cognitive.toJSON());
+
+      // Guard against unbounded state growth
+      const MAX_STATE_SIZE = 10 * 1024 * 1024; // 10 MB
+      if (data.length > MAX_STATE_SIZE) {
+        console.warn(`[CognitiveAgent] Sentient state too large (${(data.length / 1024 / 1024).toFixed(1)} MB) — skipping save`);
+        return;
+      }
+
+      await writeFile(statePath, data, 'utf-8');
+    } catch (err) {
+      console.warn('[CognitiveAgent] Failed to save sentient state:', err.message);
+    }
+  }
+
+  /**
+   * Check if the sentient observer core is active.
+   * @returns {boolean}
+   */
+  isSentientEnabled() {
+    return this._sentientEnabled;
+  }
+
+  /**
+   * Check if the sentient observer core is pending initialization.
+   * Used by CognitiveProvider to decide whether to call initSentientCore().
+   * @returns {boolean}
+   */
+  isSentientPending() {
+    return this._sentientPending;
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // New turn() — delegates to lmscript executeAgent when available
   // ════════════════════════════════════════════════════════════════════
 
@@ -182,6 +430,83 @@ class CognitiveAgent {
   async turn(input, options = {}) {
     // Clear per-turn caches
     this._cachedSelectedTraits = null;
+    this._cachedToolDefs = null;
+    this._cachedLmscriptTools = null;
+
+    // ── Precheck: can the model answer directly? ───────────────────
+    // Skip the full cognitive pipeline for simple questions like
+    // "what is 2+2?" or "explain closures".  Saves 2-4 LLM calls and
+    // 1-3 seconds per simple query by avoiding processInput, safety
+    // checks, trait routing, pre-routing, and system prompt construction.
+    // Precheck can be disabled via config.
+    if (this.config.agent?.precheckEnabled !== false) {
+      try {
+        emitCommentary(`🔍 Analyzing request: ${summarizeInput(input)} — checking if I can answer directly…`);
+        // Phase 1 streaming: the precheck call intentionally does NOT forward
+        // options.onChunk.  Precheck responses are short direct answers that
+        // benefit from appearing atomically rather than streaming token-by-token.
+        // The chat-handler falls back to sendAiMessage() when no streaming chunks
+        // are emitted, which provides the correct UX for this path.
+        // Phase 2 will evaluate whether precheck streaming improves perceived latency.
+        const preCheckResult = await this._callLLM([
+          { role: 'system', content: PRECHECK_PROMPT },
+          { role: 'user', content: input },
+        ], [], { signal: options.signal });
+
+        const responseText = (preCheckResult.content || '').trim();
+
+        if (responseText && !responseText.includes(PROCEED_SENTINEL)) {
+          // Validate the direct answer quality before accepting
+          const { action } = evaluateTextResponse(responseText, input, 0);
+          if (action !== 'retry') {
+            emitCommentary('✅ Answered directly — no tools needed.');
+            this.turnCount++;
+
+            // Still run cognitive post-processing for memory/evolution
+            this.cognitive.processInput(input);
+            const validation = this.cognitive.validateOutput(responseText, { input });
+            let finalResponse = responseText;
+            if (!validation.passed) {
+              finalResponse += '\n\n[Note: This response scored below the objectivity threshold. R=' +
+                validation.R.toFixed(2) + ']';
+            }
+
+            this.history.push({ role: 'user', content: input });
+            this.history.push({ role: 'assistant', content: finalResponse });
+            while (this.history.length > this.maxHistory) {
+              this.history.shift();
+            }
+            this.cognitive.remember(input, finalResponse);
+            for (let i = 0; i < 3; i++) this.cognitive.tick();
+
+            return {
+              response: finalResponse,
+              toolResults: [],
+              thoughts: null,
+              signature: null,
+              diagnostics: { ...this.cognitive.getDiagnostics(), precheck: true },
+              tokenUsage: null
+            };
+          }
+          // Quality check failed — fall through to full pipeline
+          emitCommentary('🔄 Direct answer didn\'t meet quality bar — entering the agent loop for a deeper response.');
+        } else {
+          emitCommentary('🧠 This requires tools and deeper reasoning — entering the agent loop.');
+        }
+      } catch (e) {
+        if (isCancellationError(e) || options.signal?.aborted) {
+          return {
+            response: '🛑 Task cancelled.',
+            toolResults: [],
+            thoughts: null,
+            signature: null,
+            diagnostics: {},
+            tokenUsage: null
+          };
+        }
+        // Precheck failed — proceed to full pipeline silently
+      }
+    }
 
     // ── Fallback: no runtime → legacy loop ─────────────────────────
     if (!this._runtime) {
@@ -189,6 +514,11 @@ class CognitiveAgent {
         await this._turnLegacy(input, options)
       );
     }
+
+    // Note: lmscript executeAgent path does not support onChunk streaming
+    // in Phase 1. Streaming is handled via the precheck path above and
+    // the _turnLegacy fallback path. Phase 2 will add streaming to the
+    // lmscript tool-call synthesis path.
 
     // Hoist declarations so they are accessible in the catch block
     // for fallback to _turnLegacy. Default to empty arrays so the
@@ -198,12 +528,16 @@ class CognitiveAgent {
     // Track tool calls and iteration budget at this scope so they survive
     // lmscript throws and are accessible in the catch block for recovery.
     const collectedToolCalls = [];
-    let lmscriptMaxIter = 10; // default; overwritten inside try
+    let lmscriptMaxIter = 6; // default; overwritten inside try
+    // AbortController for empty-iteration early exit — hoisted so the
+    // catch block can detect whether the abort was ours.
+    let earlyExitController = null;
 
     try {
       this.turnCount++;
 
       // ── Steps 1-4: Process input through cognitive core ──────────
+      emitCommentary(`🚀 Processing request: ${summarizeInput(input)}`);
       this._tracker.setActivity(`Analyzing your request: ${summarizeInput(input)}`);
       this.cognitive.processInput(input);
 
@@ -222,11 +556,14 @@ class CognitiveAgent {
         };
       }
 
-      // ── Pre-route: auto-fetch data the user is asking about ──────
-      preRouted = await this._preRoute(input, options);
-
-      // ── Select relevant plugin traits via LLM routing ─────────────
-      this._cachedSelectedTraits = await this._selectRelevantTraits(input);
+      // ── Pre-route + trait routing (concurrent) ─────────────────────
+      // These two operations are independent — pre-route does file I/O
+      // and trait routing does an LLM call.  Running them in parallel
+      // saves the latency of whichever finishes second (~1-2s typically).
+      [preRouted, this._cachedSelectedTraits] = await Promise.all([
+        this._preRoute(input, options),
+        this._selectRelevantTraits(input),
+      ]);
 
       // ── Build system prompt with cognitive context ────────────────
       emitStatus('Building context — selecting relevant plugins and memories');
@@ -258,15 +595,34 @@ class CognitiveAgent {
       // The continuation loop below handles additional work if needed.
       lmscriptMaxIter = options.maxIterations
         || this.config.agent?.maxLmscriptIterations
-        || this.config.agent?.maxToolRounds
-        || 10;
+        || 6;
 
-      emitStatus('Sending request to AI model — waiting for response…');
+      emitCommentary('🧠 Sending request to AI model — waiting for response…');
       this._tracker.setActivity('Sending request to AI model — waiting for response…', { phase: 'llm-call' });
+
+      // Track the last tool call name per iteration so we can emit
+      // a narrative summary between iterations (verbal callouts).
+      let lastIterationToolNames = [];
+
+      // ── Empty-iteration early exit ──────────────────────────────────
+      // Track consecutive iterations where the LLM produced no tool calls.
+      // When the model "thinks" without acting for too many rounds in a row,
+      // it's spinning (the pathological pattern from the log analysis).
+      // We abort via an AbortController so the synthesized-from-exhaustion
+      // recovery path can produce a useful response from collected tool calls.
+      let consecutiveEmptyIterations = 0;
+      const maxEmptyIterations = options.maxEmptyIterations
+        || this.config.agent?.maxEmptyIterations
+        || 2; // abort after 2 consecutive empty iterations
+      earlyExitController = new AbortController();
+      // Chain with user-supplied signal if present
+      if (options.signal) {
+        options.signal.addEventListener('abort', () => earlyExitController.abort(options.signal.reason), { once: true });
+      }
 
       const result = await this._runtime.executeAgent(agentFn, input, {
         maxIterations: lmscriptMaxIter,
-        signal: options.signal,
+        signal: earlyExitController.signal,
         onToolCall: (toolCall) => {
           const desc = describeToolCall(toolCall.name, toolCall.args || toolCall.input);
           emitStatus(`AI called tool: ${desc}`);
@@ -274,8 +630,37 @@ class CognitiveAgent {
           // Mirror tool calls at the CognitiveAgent level so we can
           // synthesize a response if lmscript exhausts its iteration budget.
           collectedToolCalls.push(toolCall);
+          lastIterationToolNames.push(toolCall.name);
         },
         onIteration: (iteration) => {
+          // ── Emit narrative commentary between iterations ──
+          // Provide a verbal callout summarizing what just happened
+          // before the AI processes the results for the next round.
+          if (lastIterationToolNames.length > 0) {
+            const narrative = buildToolRoundNarrative(
+              lastIterationToolNames.map((name, i) => ({
+                name,
+                result: collectedToolCalls.slice(-lastIterationToolNames.length)[i]?.result
+              }))
+            );
+            if (narrative) {
+              emitCommentary(`🔧 Iteration ${iteration}: ${narrative} Sending results back to AI…`);
+            }
+            lastIterationToolNames = []; // reset for next iteration
+            consecutiveEmptyIterations = 0; // reset — work was done
+          } else {
+            consecutiveEmptyIterations++;
+            emitCommentary(`🔄 AI analyzing results — iteration ${iteration} (empty: ${consecutiveEmptyIterations}/${maxEmptyIterations})`);
+
+            // Abort if the model has been spinning without tool calls
+            if (consecutiveEmptyIterations >= maxEmptyIterations) {
+              console.warn(
+                `[CognitiveAgent] ${consecutiveEmptyIterations} consecutive empty iterations — aborting to synthesize response`
+              );
+              emitCommentary(`⏱️ AI spinning without tool calls for ${consecutiveEmptyIterations} iterations — synthesizing response…`);
+              earlyExitController.abort(EMPTY_ITERATION_ABORT_REASON);
+            }
+          }
           this._tracker.setActivity(`AI processing tool results — iteration ${iteration}`, { phase: 'llm-call' });
         },
       });
@@ -287,7 +672,9 @@ class CognitiveAgent {
       // "Let me write the file..." without actually producing content,
       // re-run the agent with a nudge to take action.
       let continuations = 0;
-      const maxContinuations = this.config.agent.maxContinuations || 3;
+      // Allow callers (e.g. plan executor) to override maxContinuations.
+      // Plan sub-steps should use 0 or 1 since the plan itself provides continuation.
+      const maxContinuations = options.maxContinuations ?? (this.config.agent.maxContinuations || 3);
       const maxTotalLLMCalls = this.config.agent.maxTotalLLMCalls || 20;
       // Track aggregate LLM calls across the initial run + all continuations.
       // executeAgent() returns usage.callCount when the runtime tracks it;
@@ -303,8 +690,11 @@ class CognitiveAgent {
         this._isIncompleteResponse(responseText)
       ) {
         continuations++;
+        // ── Emit commentary for the continuation ──
+        // The AI announced intent without acting — tell the user what's happening
+        const intentPreview = responseText.trim().substring(0, 150);
+        emitCommentary(`🤖 AI said: "${intentPreview}${responseText.trim().length > 150 ? '…' : ''}" — nudging to take action (continuation ${continuations}/${maxContinuations})`);
         this._tracker.setActivity(`Continuing work… (continuation ${continuations})`);
-        emitStatus(`Response appears incomplete — continuing (${continuations}/${maxContinuations})`);
 
         // Build a summary of tools already executed so the continuation
         // retains context about prior work and avoids re-reading files.
@@ -326,6 +716,8 @@ class CognitiveAgent {
 
         if (effectiveMaxIter <= 0) break;
 
+        let contIterToolNames = [];
+
         const continuationResult = await this._runtime.executeAgent(agentFn,
           `You just said: "${responseText.trim().substring(0, 500)}"\n\n` +
           priorToolSummary +
@@ -339,8 +731,19 @@ class CognitiveAgent {
               const desc = describeToolCall(toolCall.name, toolCall.args || toolCall.input);
               emitStatus(`AI called tool: ${desc}`);
               this._tracker.setActivity(`Executing: ${desc}`, { phase: 'tool-exec' });
+              contIterToolNames.push(toolCall.name);
             },
             onIteration: (iteration) => {
+              // ── Narrative commentary for continuation iterations ──
+              if (contIterToolNames.length > 0) {
+                const narrative = buildToolRoundNarrative(contIterToolNames.map(name => ({ name })));
+                if (narrative) {
+                  emitCommentary(`🔧 Continuation ${continuations}, iteration ${iteration}: ${narrative} Continuing…`);
+                }
+                contIterToolNames = [];
+              } else {
+                emitCommentary(`🔄 AI analyzing results — continuation ${continuations}, iteration ${iteration}`);
+              }
               this._tracker.setActivity(`AI processing results — continuation ${continuations}, iteration ${iteration}`, { phase: 'llm-call' });
             },
           }
@@ -396,7 +799,7 @@ class CognitiveAgent {
         this.totalTokens += result.usage.totalTokens || 0;
       }
 
-      emitStatus('Response ready');
+      emitCommentary('✅ Response ready.');
       this._tracker.stop();
 
       return {
@@ -413,16 +816,20 @@ class CognitiveAgent {
       // and the LLM's last response was a tool-call (not a final JSON answer).
       // If we collected tool calls during execution, synthesize a response
       // from them rather than discarding all that work via a full legacy fallback.
-      const isIterationExhaustion = err.message?.includes('[lmscript]')
-        && (err.message.includes('Failed to parse LLM response as JSON')
-            || err.message.includes('produced invalid output'));
+      // Detect our own early-exit abort (from empty-iteration detection)
+      const isEarlyExitAbort = earlyExitController?.signal?.aborted
+        && earlyExitController.signal.reason === EMPTY_ITERATION_ABORT_REASON;
+      const isIterationExhaustion = isEarlyExitAbort
+        || (err.message?.includes('[lmscript]')
+            && (err.message.includes('Failed to parse LLM response as JSON')
+                || err.message.includes('produced invalid output')));
 
       if (isIterationExhaustion && collectedToolCalls.length > 0) {
         console.warn(
           `[CognitiveAgent] lmscript exhausted ${lmscriptMaxIter} iterations with ${collectedToolCalls.length} tool calls — synthesizing response`
         );
         this._tracker.setActivity(`AI iteration limit reached — synthesizing response from ${collectedToolCalls.length} tool results`);
-        emitStatus(`AI iteration limit reached — synthesizing response from ${collectedToolCalls.length} tool results`);
+        emitCommentary(`⏱️ AI reached iteration limit after ${collectedToolCalls.length} tool calls — synthesizing a summary response…`);
 
         // Build tool results in the format _buildFallbackResponse expects
         const toolResults = collectedToolCalls.map(tc => ({
@@ -475,7 +882,7 @@ class CognitiveAgent {
         this.cognitive.remember(input, finalResponse);
         for (let i = 0; i < 3; i++) this.cognitive.tick();
 
-        emitStatus('Response ready');
+        emitCommentary('✅ Response ready (synthesized from tool results).');
         this._tracker.stop();
 
         return {
@@ -642,14 +1049,19 @@ class CognitiveAgent {
 
     try {
       // Initial LLM call via ai-man's EventicAIProvider
+      emitCommentary('🧠 Sending request to AI model — waiting for response…');
       this._tracker.setActivity('Sending request to AI model — waiting for response…', { phase: 'llm-call' });
       response = await this._callLLM(messages, toolDefs, options);
       let llmCallCount = 1; // count the initial call
       const maxTotalLLMCalls = this.config.agent.maxTotalLLMCalls || 20;
 
+      // Strip onChunk for internal tool-loop and continuation calls — only
+      // the final user-facing synthesis should be streamed.
+      const { onChunk: _stripLegacyChunk, ...legacyInternalOptions } = options;
+
       // Tool call loop — delegate to shared helper to avoid duplication
       ({ response, toolRounds, llmCallCount } = await this._processToolCalls(
-        messages, response, toolDefs, toolResults, toolRounds, options, llmCallCount
+        messages, response, toolDefs, toolResults, toolRounds, legacyInternalOptions, llmCallCount
       ));
 
       // ── Continuation loop: detect incomplete responses ──────────────
@@ -668,8 +1080,10 @@ class CognitiveAgent {
         this._isIncompleteResponse(response.content)
       ) {
         continuations++;
+        // ── Emit commentary for the legacy continuation ──
+        const legacyIntentPreview = response.content.trim().substring(0, 150);
+        emitCommentary(`🤖 AI said: "${legacyIntentPreview}${response.content.trim().length > 150 ? '…' : ''}" — nudging to take action (continuation ${continuations}/${maxContinuations})`);
         this._tracker.setActivity(`Continuing work… (continuation ${continuations})`);
-        emitStatus(`Response appears incomplete — continuing (${continuations}/${maxContinuations})`);
 
         // Add the incomplete response as an assistant message
         messages.push({ role: 'assistant', content: response.content });
@@ -680,12 +1094,12 @@ class CognitiveAgent {
           content: 'You just described what you intend to do but did NOT actually do it. You MUST now take action by calling the appropriate tools (e.g. write_file, execute_command, etc.) to complete the task. Do NOT just describe what you will do — actually do it now using tool calls.'
         });
 
-        response = await this._callLLM(messages, toolDefs, options);
+        response = await this._callLLM(messages, toolDefs, legacyInternalOptions);
         llmCallCount++;
 
         // If the continuation produced tool calls, run them through the shared tool loop
         ({ response, toolRounds, llmCallCount } = await this._processToolCalls(
-          messages, response, toolDefs, toolResults, toolRounds, options, llmCallCount
+          messages, response, toolDefs, toolResults, toolRounds, legacyInternalOptions, llmCallCount
         ));
       }
 
@@ -696,6 +1110,7 @@ class CognitiveAgent {
       // model's last response contained tool calls (which were dropped).
       const needsSynthesis = toolRounds > 0 && !response.content?.trim();
       if (needsSynthesis) {
+        emitCommentary(`📝 Tool loop completed (${toolRounds} rounds, ${toolResults.length} tools) — synthesizing final response…`);
         this._tracker.setActivity('Synthesizing final response…');
 
         // Build a human-readable summary of all tool results so the model
@@ -772,7 +1187,7 @@ class CognitiveAgent {
       this.cognitive.tick();
     }
 
-    emitStatus('Response ready');
+    emitCommentary('✅ Response ready.');
     this._tracker.stop();
 
     return {
@@ -861,9 +1276,13 @@ class CognitiveAgent {
 
       if (toolContext) {
         // Cap pre-routed data to prevent blowing the context window.
-        // Use a rough 4-chars-per-token estimate against the configured max.
-        const maxPreRouteChars = ((this.config.lmscript?.context?.maxTokens || 128000)
-            - (this.config.lmscript?.context?.reserveTokens || 4096)) * 2; // leave room for other sections
+        // Allocate 30% of available context tokens for pre-routed data,
+        // leaving room for the system prompt base, tool definitions, plugin
+        // traits, history, user message, and response.
+        // Uses a ~4-chars-per-token estimate to convert token budget to chars.
+        const availableTokens = (this.config.lmscript?.context?.maxTokens || 128000)
+            - (this.config.lmscript?.context?.reserveTokens || 4096);
+        const maxPreRouteChars = Math.floor(availableTokens * 0.3 * 4);
         if (toolContext.length > maxPreRouteChars) {
           toolContext = toolContext.substring(0, maxPreRouteChars) + '\n\n[...data truncated to fit context window]';
         }
@@ -1010,6 +1429,10 @@ class CognitiveAgent {
    * Shared by both the main tool loop and the continuation-triggered tool
    * loop so the Gemini _geminiParts round-trip logic lives in one place.
    *
+   * On every iteration, emits a narrative commentary summarising the tools
+   * that were just executed and any text the AI provided alongside tool calls.
+   * This ensures the user always sees a verbal callout between processing blocks.
+   *
    * @param {Array} messages     - Mutable messages array (modified in place)
    * @param {Object} response    - Current LLM response (may contain toolCalls)
    * @param {Array} toolDefs     - Tool definitions for subsequent LLM calls
@@ -1022,6 +1445,9 @@ class CognitiveAgent {
    */
   async _processToolCalls(messages, response, toolDefs, toolResults, toolRounds, options, llmCallCount = 0) {
     const maxTotalLLMCalls = this.config.agent.maxTotalLLMCalls || 20;
+    // Strip streaming callback from tool-loop LLM calls — internal reasoning
+    // should not be streamed to the user (Phase 1 streaming support).
+    const { onChunk: _stripChunk, ...toolLoopOptions } = options;
     while (
       response.toolCalls &&
       response.toolCalls.length > 0 &&
@@ -1029,6 +1455,14 @@ class CognitiveAgent {
       llmCallCount < maxTotalLLMCalls
     ) {
       toolRounds++;
+
+      // ── Emit AI commentary if the response included text alongside tool calls ──
+      // Many models provide a short explanation of what they're about to do.
+      // Surface it as a persistent narrative so the user sees a verbal callout.
+      if (response.content?.trim()) {
+        const commentary = response.content.trim().substring(0, 300);
+        emitCommentary(`🤖 ${commentary}`);
+      }
 
       // Build the assistant message for ALL tool calls in this round.
       // For Gemini thinking models, we MUST preserve _geminiParts (which
@@ -1061,26 +1495,52 @@ class CognitiveAgent {
 
       // Execute each tool and push results
       const roundToolNames = response.toolCalls.map(tc => tc.function.name);
-      emitStatus(`AI requested ${roundToolNames.length} tool(s): ${roundToolNames.join(', ')}`);
+      emitCommentary(`⚙️ AI requested ${roundToolNames.length} tool(s): ${roundToolNames.join(', ')}`);
 
-      for (const toolCall of response.toolCalls) {
-        const result = await this._executeTool(
-          toolCall.function.name,
-          toolCall.function.arguments
-        );
-        toolResults.push({ tool: toolCall.function.name, result });
+      for (let i = 0; i < response.toolCalls.length; i++) {
+        const toolCall = response.toolCalls[i];
+        const toolName = toolCall.function.name;
+
+        // Per-tool start status so the user sees progress through multi-tool rounds
+        let parsedArgs = toolCall.function.arguments;
+        if (typeof parsedArgs === 'string') {
+          try { parsedArgs = JSON.parse(parsedArgs); } catch { parsedArgs = {}; }
+        }
+        const toolDesc = describeToolCall(toolName, parsedArgs || {});
+        if (response.toolCalls.length > 1) {
+          emitStatus(`Running tool ${i + 1}/${response.toolCalls.length}: ${toolDesc}`);
+        } else {
+          emitStatus(`Running tool: ${toolDesc}`);
+        }
+
+        const result = await this._executeTool(toolName, toolCall.function.arguments);
+        toolResults.push({ tool: toolName, result });
+
+        // Per-tool completion status
+        const toolFailed = result?.success === false || result?.error;
+        emitStatus(`Tool ${toolName} ${toolFailed ? 'failed' : 'completed'}`);
 
         messages.push({
           role: 'tool',
-          tool_call_id: toolCall.id || `call_${toolRounds}_${toolCall.function.name}`,
-          name: toolCall.function.name,
+          tool_call_id: toolCall.id || `call_${toolRounds}_${toolName}`,
+          name: toolName,
           content: JSON.stringify(result)
         });
       }
 
-      // Call LLM again with tool results
+      // ── Emit post-round narrative summary ──
+      // Build a human-readable summary of what was just done so the user
+      // sees a clear verbal callout between every tool execution round.
+      const roundNarrative = buildToolRoundNarrative(
+        roundToolNames.map((name, i) => ({ name, result: toolResults.slice(-roundToolNames.length)[i]?.result }))
+      );
+      if (roundNarrative) {
+        emitCommentary(`🔧 Round ${toolRounds}: ${roundNarrative} Sending results back to AI…`);
+      }
+
+      // Call LLM again with tool results (no streaming — internal reasoning)
       this._tracker.setActivity(`Sending tool results to AI — round ${toolRounds + 1}`, { phase: 'llm-call' });
-      response = await this._callLLM(messages, toolDefs, options);
+      response = await this._callLLM(messages, toolDefs, toolLoopOptions);
       llmCallCount++;
     }
 
@@ -1175,6 +1635,11 @@ class CognitiveAgent {
       'delete_file': 'Delete file',
       'cognitive_state': 'Check cognitive state',
       'recall_memory': 'Search memory',
+      'sentient_introspect': 'Deep introspection',
+      'sentient_adaptive_process': 'Adaptive processing',
+      'sentient_set_goal': 'Set goal',
+      'sentient_memory_search': 'SMF memory search',
+      'sentient_evolution_snapshot': 'Evolution snapshot',
     };
     return map[name] || name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
@@ -1318,7 +1783,163 @@ class CognitiveAgent {
       }
     ];
 
+    // ── Sentient-specific tools (only when SentientCognitiveCore is active) ──
+    if (this._sentientEnabled) {
+      const sentientDefs = this._getSentientToolMetadata();
+      for (const def of sentientDefs) {
+        cognitiveTools.push({
+          name: def.name,
+          description: def.description,
+          parameters: def.zodSchema,
+          execute: (args) => this._executeSentientTool(def.name, args),
+        });
+      }
+    }
+
     return [...bridgedTools, ...cognitiveTools];
+  }
+
+  /**
+   * Single source of truth for sentient tool metadata.
+   * Returns an array of { name, description, zodSchema, openAiSchema } objects
+   * used by _getLmscriptTools(), _getToolDefinitions(), and _executeSentientTool().
+   *
+   * @returns {Array<{name: string, description: string, zodSchema: import('zod').ZodType, openAiSchema: Object}>}
+   * @private
+   */
+  _getSentientToolMetadata() {
+    return [
+      {
+        name: 'sentient_introspect',
+        description: 'Deep introspection of the sentient observer — returns PRSC oscillator phases, SMF field state, agency goals, boundary integrity, temporal perception, entanglement links, and holographic encoder status',
+        zodSchema: z.object({}),
+        openAiSchema: { type: 'object', properties: {}, required: [] },
+      },
+      {
+        name: 'sentient_adaptive_process',
+        description: 'Process text through the sentient observer using Adaptive Coherence Tracking (ACT) — iteratively processes until coherence stabilizes, returning richer analysis than standard processInput',
+        zodSchema: z.object({
+          text: z.string().describe('Text to process adaptively'),
+          maxSteps: z.number().optional().describe('Maximum ACT iterations (default: 50)'),
+          coherenceThreshold: z.number().optional().describe('Coherence threshold to stop (default: 0.7)'),
+        }),
+        openAiSchema: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'Text to process adaptively' },
+            maxSteps: { type: 'number', description: 'Maximum ACT iterations (default: 50)' },
+            coherenceThreshold: { type: 'number', description: 'Coherence threshold to stop (default: 0.7)' },
+          },
+          required: ['text'],
+        },
+      },
+      {
+        name: 'sentient_set_goal',
+        description: 'Create a goal in the sentient observer\'s agency layer — goals influence attention allocation and processing priorities',
+        zodSchema: z.object({
+          description: z.string().describe('Goal description'),
+          priority: z.number().optional().describe('Goal priority 0-1 (default: 0.5)'),
+        }),
+        openAiSchema: {
+          type: 'object',
+          properties: {
+            description: { type: 'string', description: 'Goal description' },
+            priority: { type: 'number', description: 'Goal priority 0-1 (default: 0.5)' },
+          },
+          required: ['description'],
+        },
+      },
+      {
+        name: 'sentient_memory_search',
+        description: 'Search the sentient observer\'s holographic memory field (SMF) by similarity — uses sedenion-based similarity matching for deeper semantic recall than standard recall_memory',
+        zodSchema: z.object({
+          query: z.string().describe('Search query text'),
+          limit: z.number().optional().describe('Max results (default: 5)'),
+        }),
+        openAiSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query text' },
+            limit: { type: 'number', description: 'Max results (default: 5)' },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'sentient_evolution_snapshot',
+        description: 'Capture a snapshot of the sentient observer\'s evolution stream — shows cognitive evolution trajectory, coherence history, and emergent patterns over time',
+        zodSchema: z.object({}),
+        openAiSchema: { type: 'object', properties: {}, required: [] },
+      },
+    ];
+  }
+
+  /**
+   * Shared execution logic for all sentient-specific tools.
+   * Called from _getLmscriptTools() execute callbacks, _executeTool(), and
+   * any future tool dispatch paths.
+   *
+   * @param {string} name - Sentient tool name (e.g. 'sentient_introspect')
+   * @param {Object} args - Parsed tool arguments
+   * @returns {Object|null} Tool result object, or null if name is not a sentient tool
+   * @private
+   */
+  _executeSentientTool(name, args = {}) {
+    switch (name) {
+      case 'sentient_introspect': {
+        emitStatus('Deep sentient introspection');
+        this._tracker.setActivity('Deep sentient introspection');
+        return { success: true, introspection: this.cognitive.introspect() };
+      }
+      case 'sentient_adaptive_process': {
+        emitStatus('Adaptive coherence processing');
+        this._tracker.setActivity('Running adaptive coherence processing');
+        const result = this.cognitive.processTextAdaptive(args.text || '', {
+          maxSteps: args.maxSteps,
+          coherenceThreshold: args.coherenceThreshold,
+        });
+        return { success: true, ...result };
+      }
+      case 'sentient_set_goal': {
+        const desc = args.description || '';
+        emitStatus(`Setting sentient goal: ${desc.substring(0, 40)}`);
+        this._tracker.setActivity(`Setting goal: ${desc.substring(0, 40)}`);
+        this.cognitive.createGoal(desc, args.priority);
+        return { success: true, message: `Goal created: ${desc}` };
+      }
+      case 'sentient_memory_search': {
+        const query = args.query || '';
+        emitStatus(`SMF memory search: "${query.substring(0, 40)}"`);
+        this._tracker.setActivity(`SMF memory search: "${query.substring(0, 40)}"`);
+        const memories = this.cognitive.recall(query, args.limit || 5);
+        return {
+          success: true,
+          memories: memories.map(m => ({
+            input: m.input,
+            output: m.output,
+            similarity: m.similarity,
+            coherence: m.coherence,
+            age: m.timestamp ? Date.now() - m.timestamp : undefined,
+          })),
+        };
+      }
+      case 'sentient_evolution_snapshot': {
+        emitStatus('Capturing evolution snapshot');
+        this._tracker.setActivity('Capturing evolution snapshot');
+        const stats = this.cognitive.getAdaptiveStats?.() || {};
+        const diagnostics = this.cognitive.getDiagnostics();
+        return {
+          success: true,
+          evolution: {
+            adaptiveStats: stats,
+            diagnostics,
+            sentientEnabled: true,
+          },
+        };
+      }
+      default:
+        return null;
+    }
   }
 
   /**
@@ -1386,6 +2007,20 @@ class CognitiveAgent {
       }
     ];
 
+    // ── Sentient-specific tool definitions (only when sentient core is active) ──
+    if (this._sentientEnabled) {
+      for (const def of this._getSentientToolMetadata()) {
+        cognitiveTools.push({
+          type: 'function',
+          function: {
+            name: def.name,
+            description: def.description,
+            parameters: def.openAiSchema,
+          },
+        });
+      }
+    }
+
     return [...aiManTools, ...cognitiveTools];
   }
 
@@ -1407,10 +2042,16 @@ class CognitiveAgent {
    */
   async _callLLM(messages, tools, options = {}) {
     try {
-      const response = await this.aiProvider.askWithMessages(messages, {
+      const askOptions = {
         tools: tools.length > 0 ? tools : undefined,
         signal: options.signal
-      });
+      };
+      // Forward streaming options when provided (Phase 1 streaming support)
+      if (options.onChunk) {
+        askOptions.stream = true;
+        askOptions.onChunk = options.onChunk;
+      }
+      const response = await this.aiProvider.askWithMessages(messages, askOptions);
 
       // Handle the response format
       if (typeof response === 'string') {
@@ -1492,6 +2133,12 @@ class CognitiveAgent {
           age: Date.now() - m.timestamp
         }))
       };
+    }
+
+    // ── Sentient-specific tools ───────────────────────────────────────
+    if (this._sentientEnabled) {
+      const sentientResult = this._executeSentientTool(name, parsedArgs);
+      if (sentientResult) return sentientResult;
     }
 
     // Delegate to ai-man's ToolExecutor via the full executeTool() pipeline.

@@ -2,6 +2,7 @@ import { consoleStyler } from '../../ui/console-styler.mjs';
 import { convertHistoryToUIMessages, processContentForUI } from '../ws-helpers.mjs';
 import { isLLMAuthError, buildLLMAuthErrorPayload } from '../llm-error-detector.mjs';
 import { wsSend } from '../../lib/ws-utils.mjs';
+import { generateSimpleId } from '../../lib/id-utils.mjs';
 
 /**
  * Handles: chat, interrupt
@@ -123,12 +124,75 @@ async function handleChat(data, ctx) {
         surfaceContextInput = `${surfaceContextInput}\n\n${attachContext}`;
     }
 
+    // ── Streaming setup ─────────────────────────────────────────────────
+    const streamMsgId = generateSimpleId('stream');
+    let streamStarted = false;
+
+    // Chunk batching: buffer incoming tokens and flush every BATCH_INTERVAL_MS
+    // to avoid sending hundreds of tiny WS messages per second.
+    const BATCH_INTERVAL_MS = 50;
+    let chunkBuffer = '';
+    let batchTimer = null;
+
+    const flushChunkBuffer = () => {
+        batchTimer = null;
+        try {
+            if (ws.readyState !== 1 || !chunkBuffer) return; // 1 === WebSocket.OPEN
+            wsSend(ws, 'message-stream-chunk', {
+                id: streamMsgId,
+                delta: chunkBuffer
+            });
+            chunkBuffer = '';
+        } catch { /* ws may have been destroyed between timer scheduling and firing */ }
+    };
+
+    /** Callback invoked per-token by the agent pipeline. */
+    const onChunk = (delta) => {
+        // Guard: if the request was aborted mid-stream, stop emitting.
+        if (activeRef.controller?.signal?.aborted) return;
+        // Guard: don't queue chunks for a closed/closing WebSocket
+        if (ws.readyState !== 1) return; // 1 === WebSocket.OPEN
+
+        if (!streamStarted) {
+            streamStarted = true;
+            wsSend(ws, 'message-stream-start', {
+                id: streamMsgId,
+                role: 'ai',
+                timestamp: new Date().toLocaleString()
+            });
+        }
+
+        chunkBuffer += delta;
+        if (!batchTimer) {
+            batchTimer = setTimeout(flushChunkBuffer, BATCH_INTERVAL_MS);
+        }
+    };
+
     try {
-        const responseText = await assistant.run(surfaceContextInput, { signal: activeRef.controller.signal, model: modelOverride, ws });
+        const responseText = await assistant.run(surfaceContextInput, {
+            signal: activeRef.controller.signal,
+            model: modelOverride,
+            ws,
+            onChunk
+        });
         
         // Read token usage stored by the facade during run()
         const tokenUsage = assistant._lastTokenUsage || null;
-        sendAiMessage(ws, processContentForUI(responseText), tokenUsage ? { tokenUsage } : {});
+
+        if (streamStarted) {
+            // Flush any remaining buffered chunks before closing
+            if (batchTimer) clearTimeout(batchTimer);
+            flushChunkBuffer();
+            // Streaming occurred — send the final end event with processed content
+            wsSend(ws, 'message-stream-end', {
+                id: streamMsgId,
+                content: processContentForUI(responseText),
+                ...(tokenUsage ? { tokenUsage } : {})
+            });
+        } else {
+            // No streaming occurred (e.g. provider doesn't support it) — fallback
+            sendAiMessage(ws, processContentForUI(responseText), tokenUsage ? { tokenUsage } : {});
+        }
 
         // Persist the conversation to disk as a safety net.
         // Runs in background to avoid blocking the UI status transition to 'idle'.
@@ -143,20 +207,52 @@ async function handleChat(data, ctx) {
         // the status transition to 'idle'.
         assistant.generateNextSteps(userInput, responseText).catch(() => {});
     } catch (err) {
+        // Clear any pending batch timer on error
+        if (batchTimer) clearTimeout(batchTimer);
         if (err.name === 'AbortError' || err.message?.includes('cancelled') || err.message?.includes('aborted')) {
             consoleStyler.log('system', 'Task execution cancelled by user');
-            sendAiMessage(ws, '🛑 Task cancelled.');
+            if (streamStarted) {
+                flushChunkBuffer();
+                // Close the stream gracefully with interrupted flag
+                wsSend(ws, 'message-stream-end', {
+                    id: streamMsgId,
+                    content: '',
+                    interrupted: true
+                });
+            } else {
+                sendAiMessage(ws, '🛑 Task cancelled.');
+            }
         } else if (isLLMAuthError(err)) {
             consoleStyler.log('error', `LLM auth error detected: ${err.message}`);
             const payload = buildLLMAuthErrorPayload(err, 'chat');
             broadcast('llm-auth-error', payload);
-            sendAiMessage(ws, `🔑 **LLM API Key Error**\n\n${payload.suggestion}\n\n_Original error: ${payload.errorMessage}_`);
+            if (streamStarted) {
+                flushChunkBuffer();
+                wsSend(ws, 'message-stream-end', {
+                    id: streamMsgId,
+                    content: `🔑 **LLM API Key Error**\n\n${payload.suggestion}`,
+                    interrupted: true
+                });
+            } else {
+                sendAiMessage(ws, `🔑 **LLM API Key Error**\n\n${payload.suggestion}\n\n_Original error: ${payload.errorMessage}_`);
+            }
         } else {
             // Catch-all: log and notify the user instead of crashing the server
             consoleStyler.log('error', `Chat error: ${err.message || err}`);
-            sendAiMessage(ws, `❌ An error occurred: ${err.message || 'Unknown error'}`);
+            if (streamStarted) {
+                flushChunkBuffer();
+                wsSend(ws, 'message-stream-end', {
+                    id: streamMsgId,
+                    content: `❌ An error occurred: ${err.message || 'Unknown error'}`,
+                    interrupted: true
+                });
+            } else {
+                sendAiMessage(ws, `❌ An error occurred: ${err.message || 'Unknown error'}`);
+            }
         }
     } finally {
+        // Safety net: ensure batch timer is always cleaned up
+        if (batchTimer) clearTimeout(batchTimer);
         activeRef.controller = null;
         if (agentLoopController) agentLoopController.setForegroundBusy(false);
         wsSend(ws, 'status', 'idle');

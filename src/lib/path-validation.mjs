@@ -6,6 +6,9 @@
  * to eliminate duplication.
  */
 
+import { realpath } from 'fs/promises';
+import { dirname } from 'path';
+
 /**
  * Escape SQL LIKE wildcard characters in user input.
  * @param {string} str - Raw user input
@@ -46,4 +49,34 @@ export function validateFilePath(filePath) {
         throw new Error(`Invalid file path: "${filePath}" — resolves to empty path`);
     }
     return cleaned;
+}
+
+/**
+ * Check whether `targetPath` is confined within `rootDir` after resolving
+ * symlinks via `realpath()`.  If `targetPath` does not exist yet (ENOENT),
+ * walks up to the nearest existing parent directory and checks that instead.
+ *
+ * This is the canonical implementation used by both CognitiveAgent._isPathSafe()
+ * and CognitiveProvider._loadWorkspaceSentientOverride() — extracted here to
+ * eliminate duplication.
+ *
+ * @param {string} targetPath - Resolved absolute path to check
+ * @param {string} rootDir    - Root directory the target must be inside
+ * @returns {Promise<boolean>} true if targetPath is within rootDir
+ */
+export async function isPathWithinRoot(targetPath, rootDir) {
+    if (!targetPath || !rootDir) return false;
+    try {
+        const realTarget = (await realpath(targetPath)).replace(/\/+$/, '');
+        const realRoot = (await realpath(rootDir)).replace(/\/+$/, '');
+        return realTarget === realRoot || realTarget.startsWith(realRoot + '/');
+    } catch (e) {
+        if (e.code === 'ENOENT') {
+            // Path doesn't exist yet — check nearest existing parent
+            const parent = dirname(targetPath);
+            if (parent === targetPath) return false; // filesystem root reached
+            return isPathWithinRoot(parent, rootDir);
+        }
+        return false;
+    }
 }

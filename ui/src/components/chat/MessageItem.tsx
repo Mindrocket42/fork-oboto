@@ -274,11 +274,18 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, actions, userLabel =
                   </div>
                 )}
                 
-                {/* Pending indicator while waiting for response text */}
-                {message._pending && (!message.content || message.content.trim() === '') && (
+                {/* Pending indicator while waiting for response text (non-streaming) */}
+                {message._pending && !message._streaming && (!message.content || message.content.trim() === '') && (
                   <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/30">
                     <Loader2 size={14} className="animate-spin text-indigo-400" />
                     <span className="text-[12px] text-zinc-500">Working...</span>
+                  </div>
+                )}
+
+                {/* Streaming cursor when content hasn't arrived yet */}
+                {message._streaming && (!message.content || message.content.trim() === '') && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="inline-block w-2 h-4 bg-indigo-400 rounded-sm animate-pulse" />
                   </div>
                 )}
 
@@ -312,6 +319,10 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, actions, userLabel =
                           )}
                           <MarkdownRenderer content={cleanContent} />
                         </>
+                      )}
+                      {/* Streaming cursor — shown while LLM tokens are arriving */}
+                      {message._streaming && (
+                        <span className="inline-block w-2 h-4 ml-0.5 bg-indigo-400 rounded-sm animate-pulse align-middle" />
                       )}
                     </>
                   );
