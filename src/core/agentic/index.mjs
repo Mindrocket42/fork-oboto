@@ -14,4 +14,5 @@ export { CognitiveProvider } from './cognitive-provider.mjs';
 export { LMScriptProvider } from './lmscript/index.mjs';
 export { MahaProvider } from './maha-provider.mjs';
 export { MegacodeProvider } from './megacode/index.mjs';
+export { UnifiedProvider } from './unified/index.mjs';
 export { SSEParser } from './sse-parser.mjs';

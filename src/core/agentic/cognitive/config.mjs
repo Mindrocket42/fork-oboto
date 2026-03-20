@@ -64,35 +64,37 @@ export const DEFAULT_COGNITIVE_CONFIG = {
   },
   agent: {
     // Maximum sequential tool-call rounds before forcing a text response.
-    // Set to 15 as a reasonable cap for multi-step workflows (reading files,
+    // Set to 25 as a reasonable cap for multi-step workflows (reading files,
     // searching, writing output).  Most tasks complete in 5-10 rounds.
     // NOTE: The agent makes one additional "force text" LLM call after tool rounds
     // exhaust without producing content, so worst-case LLM calls = maxToolRounds + 1.
     // IMPORTANT: This value is used by the LEGACY agent loop only.  The lmscript
     // path uses maxLmscriptIterations instead (see below).
-    maxToolRounds: 15,
+    maxToolRounds: 25,
     // Maximum iterations for the lmscript executeAgent() loop.
-    // Unlike the legacy loop (which has a graceful "needs synthesis" step when
-    // iterations exhaust), lmscript throws a JSON-parse error if the LLM is
-    // still making tool calls when maxIterations is reached.  Keep this value
-    // moderate (6) so the agent converges before exhaustion.  The continuation
-    // loop in turn() will re-invoke executeAgent() if more work is needed.
-    maxLmscriptIterations: 6,
+    // Each iteration can include one or more tool calls.  Complex tasks
+    // (surface editing, multi-file ops) routinely need 10-15 iterations.
+    // The continuation loop in turn() will re-invoke executeAgent() if more
+    // work is needed.  The exhaustion handler synthesizes a response from
+    // collected tool results if the limit is reached.
+    maxLmscriptIterations: 25,
     // Maximum consecutive empty iterations (no tool calls) before aborting.
     // Prevents the LLM from "spinning" — consuming LLM budget on pure
     // thinking iterations that produce no tool calls.  When this limit is
     // reached, the agent synthesizes a response from collected tool results.
-    maxEmptyIterations: 2,
+    maxEmptyIterations: 4,
     // Maximum continuation rounds when the LLM announces intent but doesn't act.
     // If the LLM says "Let me do X" instead of making tool calls or providing a
     // final answer, the agent will prompt it to continue up to this many times.
-    // Each continuation gets a reduced iteration budget (max 5 iterations).
-    maxContinuations: 3,
+    // Each continuation gets a reduced iteration budget (max 10 iterations).
+    maxContinuations: 5,
     // Combined ceiling on total LLM calls within a single turn.
     // Prevents runaway cost from the tool-call + continuation loop.
-    // Practical worst case: 6 + (3 × 5) + 1 = 22.
-    // Set to 20 as a moderate ceiling.
-    maxTotalLLMCalls: 20,
+    // Theoretical maximum without this cap: 25 + (5 × 10) + 1 = 76
+    // (iterations + continuations × continuation_budget + synthesis).
+    // We set 50 to intentionally bound cost below this maximum; the
+    // continuation loop checks remainingBudget before each round.
+    maxTotalLLMCalls: 50,
     // Whether to use an LLM routing call to select relevant plugin traits
     // before building the system prompt.  When false, all active plugin
     // traits are included unconditionally (cheaper but noisier context).
@@ -176,8 +178,8 @@ CRITICAL RULES:
   },
   planner: {
     enabled: true,               // feature flag — set false to disable task decomposition
-    maxSteps: 8,                 // max steps in a generated plan (dynamically capped lower for short inputs)
-    stepMaxIterations: 5,        // lmscript iteration budget per plan sub-step (tighter than direct turns)
+    maxSteps: 12,                // max steps in a generated plan (dynamically capped lower for short inputs)
+    stepMaxIterations: 15,       // lmscript iteration budget per plan sub-step
     minComplexityWords: 30,      // min words for heuristic complexity check
     autoRetryFailedSteps: false, // auto-retry failed steps (not yet implemented)
     skipDependentOnFailure: true // skip steps that depend on failed ones

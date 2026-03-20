@@ -51,7 +51,6 @@ import { handlers as skillsHandlers } from './ws-handlers/skills-handler.mjs';
 import { handlers as cloudHandlers } from './ws-handlers/cloud-handler.mjs';
 import { handlers as pluginHandlers } from './ws-handlers/plugin-handler.mjs';
 import { handlers as personaHandlers } from './ws-handlers/persona-handler.mjs';
-import { mountDynamicRoutes } from './dynamic-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,13 +103,6 @@ export async function startServer(assistant, workingDir, eventBus, port = 3000, 
     // __dirname points to src/server/, so project root is two levels up.
     const projectRoot = path.resolve(__dirname, '..', '..');
     const uiDistPath = path.join(projectRoot, 'ui', 'dist');
-
-    // Mount dynamic routes from workspace
-    try {
-        await mountDynamicRoutes(app, workingDir);
-    } catch (e) {
-        consoleStyler.log('warning', `Failed to mount dynamic routes: ${e.message}`);
-    }
 
     // Serve generated images
     const generatedImagesPath = path.join(workingDir, 'public', 'generated-images');

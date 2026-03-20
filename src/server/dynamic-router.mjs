@@ -6,20 +6,28 @@ import { consoleStyler } from '../ui/console-styler.mjs';
 /**
  * Scans the workspace for JavaScript files exporting a 'route' function
  * and binds them to the Express app.
- * 
- * Disabled by default. Set OBOTO_DYNAMIC_ROUTES=true to enable.
+ *
+ * Disabled by default for security. Set OBOTO_DYNAMIC_ROUTES=true to enable.
  * Only scans routes/, .routes/, and api/ directories for security.
- * 
- * @param {import('express').Application} app 
- * @param {string} workingDir 
+ *
+ * **Security note:** Dynamic routes execute arbitrary JavaScript from the
+ * workspace.  The workspace content server runs on a separate port without
+ * auth sessions, but route code still has access to process.env and the
+ * filesystem.  Enable explicitly when you trust the workspace content.
+ *
+ * @param {import('express').Application} app
+ * @param {string} workingDir
  */
 export async function mountDynamicRoutes(app, workingDir) {
-    // Opt-in only — dynamic route loading executes arbitrary JS from the workspace
+    // Opt-in: dynamic route loading executes arbitrary JS from the workspace.
+    // The workspace content server runs on a separate port without auth sessions,
+    // but route code still has access to process.env and the filesystem.
+    // Enable explicitly when you trust the workspace content.
     if (process.env.OBOTO_DYNAMIC_ROUTES !== 'true') {
         consoleStyler.log('system', 'Dynamic routes disabled (set OBOTO_DYNAMIC_ROUTES=true to enable)');
         return;
     }
-    
+
     consoleStyler.log('system', 'Scanning for dynamic routes...');
     
     const routes = [];
@@ -81,9 +89,8 @@ export async function mountDynamicRoutes(app, workingDir) {
                             routes.push(routePath);
                         }
                     } catch (err) {
-                        // Only log if it looked like it might be a route file but failed
-                        // Use debug level if we had one, but warning is okay for now
-                        // consoleStyler.log('warning', `  Failed to load ${relPath}: ${err.message}`);
+                        // Log skipped files so users can diagnose route-loading issues
+                        consoleStyler.log('system', `  Skipped ${relPath}: ${err.message}`);
                     }
                 }
             }
@@ -104,6 +111,7 @@ export async function mountDynamicRoutes(app, workingDir) {
     // Arbitrary workspace subdirectories are NOT scanned to prevent code injection.
     
     if (routes.length > 0) {
+        consoleStyler.log('warning', `⚠ Loading ${routes.length} dynamic route(s) from workspace — these execute arbitrary JavaScript from: ${ROUTE_DIRS.join(', ')}`);
         consoleStyler.log('system', `✓ Mounted ${routes.length} dynamic routes`);
     } else {
         consoleStyler.log('system', 'No dynamic routes found');

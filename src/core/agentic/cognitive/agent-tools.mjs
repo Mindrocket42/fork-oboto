@@ -32,7 +32,7 @@ import { emitStatus, emitCommentary, describeToolCall, buildToolRoundNarrative }
  * @returns {Promise<{response: Object, toolRounds: number, llmCallCount: number}>}
  */
 export async function processToolCalls(agent, messages, response, toolDefs, toolResults, toolRounds, options, llmCallCount = 0) {
-  const maxTotalLLMCalls = agent.config.agent.maxTotalLLMCalls || 20;
+  const maxTotalLLMCalls = agent.config.agent.maxTotalLLMCalls || 50;
 
   // Build a Set of valid tool names for O(1) lookup during execution
   const validToolNames = new Set(
@@ -135,7 +135,7 @@ export async function processToolCalls(agent, messages, response, toolDefs, tool
         role: 'tool',
         tool_call_id: toolCall.id || `call_${toolRounds}_${toolName}`,
         name: toolName,
-        content: agent._truncateToolResult(result)
+        content: agent._truncateToolResult(result, undefined, toolName)
       });
     }
 

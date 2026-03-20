@@ -25,8 +25,8 @@ import { emitCommentary, describeToolCall, buildToolRoundNarrative } from '../..
  */
 export async function runContinuationLoop(agent, result, responseText, agentFn, input, lmscriptMaxIter, options) {
   let continuations = 0;
-  const maxContinuations = options.maxContinuations ?? (agent.config.agent.maxContinuations || 3);
-  const maxTotalLLMCalls = agent.config.agent.maxTotalLLMCalls || 20;
+  const maxContinuations = options.maxContinuations ?? (agent.config.agent.maxContinuations || 5);
+  const maxTotalLLMCalls = agent.config.agent.maxTotalLLMCalls || 50;
   let totalLLMCalls = result.usage?.callCount
     || Math.max(1, (result.toolCalls?.length || 0) + 1);
 
@@ -49,7 +49,7 @@ export async function runContinuationLoop(agent, result, responseText, agentFn, 
         }).join('\n')}\n\n`
       : '';
 
-    const continuationMaxIter = Math.min(lmscriptMaxIter, 5);
+    const continuationMaxIter = Math.min(lmscriptMaxIter, 10);
     const remainingBudget = maxTotalLLMCalls - totalLLMCalls;
     const effectiveMaxIter = Math.min(continuationMaxIter, remainingBudget);
 

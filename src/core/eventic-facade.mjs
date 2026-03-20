@@ -7,7 +7,7 @@ import { TaskCheckpointManager } from './task-checkpoint-manager.mjs';
 import { config } from '../config.mjs';
 
 // Agentic provider system
-import { AgenticProviderRegistry, EventicProvider, CognitiveProvider, LMScriptProvider, MahaProvider, MegacodeProvider } from './agentic/index.mjs';
+import { AgenticProviderRegistry, EventicProvider, CognitiveProvider, LMScriptProvider, MahaProvider, MegacodeProvider, UnifiedProvider } from './agentic/index.mjs';
 
 // Managers needed for ToolExecutor
 import { ToolExecutor } from '../execution/tool-executor.mjs';
@@ -177,6 +177,10 @@ export class EventicFacade {
         // Megacode provider for large-scale code generation
         const megacodeProvider = new MegacodeProvider();
         this.agenticRegistry.register(megacodeProvider);
+
+        // Unified provider — combines cognitive, safety, memory & learning layers
+        const unifiedProvider = new UnifiedProvider();
+        this.agenticRegistry.register(unifiedProvider);
 
         // Activate the configured provider (default: maha).
         // Changed from 'eventic' → 'cognitive' in 2026-02-26, then to 'maha' in 2026-03-18.

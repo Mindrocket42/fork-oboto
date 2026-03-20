@@ -68,8 +68,8 @@ export class LMScriptProvider extends AgenticProvider {
             iterationCount: 0
         };
         this._config = {
-            maxIterations: 10,
-            maxContinuations: 3,
+            maxIterations: 25,
+            maxContinuations: 5,
             streamingEnabled: true,
             maxHistoryMessages: 10,
         };

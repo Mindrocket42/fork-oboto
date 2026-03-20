@@ -441,19 +441,53 @@ Plugins can register tools that become available to you and to surfaces (via \`s
 Use plugin-provided tools just like any other tool — they appear in your tool list with their descriptions.`;
     }
 
-    // Add Dynamic Routes awareness
+    // Add Workspace Content Server & Dynamic Routes awareness
+    prompt += `
+
+## Workspace Content Server
+
+A dedicated HTTP server runs on a dynamically-assigned port for each workspace. It starts automatically when the workspace opens and restarts when you switch workspaces. The port is communicated to the UI client at connection time.
+
+### Static Assets
+- Place files in \`{workspace}/public/\` — they are served at \`/\` on the content server (e.g. \`public/data.json\` → \`/data.json\`).
+- Generated images are available at \`/images/\`.
+- Surfaces can reference these assets using relative URLs from the content server.`;
+
     if (dynamicRoutesEnabled) {
         prompt += `
 
-## Dynamic Routes
-The workspace supports dynamic HTTP routes. To create an API endpoint:
+### Dynamic Routes
+Create \`.mjs\` or \`.js\` files in \`routes/\`, \`.routes/\`, or \`api/\` directories to add HTTP endpoints:
 
-1. Create a \`.mjs\` or \`.js\` file in the \`routes/\` or \`api/\` directory of the workspace.
-2. Export a \`route\` function: \`export async function route(req, res) { ... }\`
-3. The file path determines the URL: \`routes/hello.mjs\` → \`/routes/hello\`, \`api/data/index.mjs\` → \`/api/data\`
+1. Export an async \`route\` function: \`export async function route(req, res) { ... }\`
+2. File path maps to URL: \`routes/data.mjs\` → \`/routes/data\`, \`api/users/index.mjs\` → \`/api/users\`
+3. Routes handle all HTTP methods (GET, POST, PUT, DELETE) with full Express req/res access.
+4. Routes reload automatically on workspace switch.
+5. Use \`.routes/\` (hidden directory) for routes you don't want visible in the workspace file listing.
 
-Dynamic routes handle all HTTP methods (GET, POST, PUT, DELETE, etc.) and have full access to Express req/res objects.
-Use this to create webhook endpoints, REST APIs, or custom data endpoints that surfaces and external systems can call.`;
+**Example route** (\`routes/items.mjs\`):
+\`\`\`js
+export async function route(req, res) {
+  if (req.method === 'GET') {
+    res.json({ items: ['alpha', 'beta', 'gamma'] });
+  } else {
+    res.status(405).json({ error: 'Method not allowed' });
+  }
+}
+\`\`\`
+
+### Surface + Route Integration
+Surfaces run in an iframe in the UI and can fetch data from workspace routes. The content server base URL is available to surfaces via their execution context.
+
+**Example**: A surface fetching from the route above:
+\`\`\`js
+const res = await fetch(\`/routes/items\`);
+const data = await res.json();
+// Use data.items to render dynamic content
+\`\`\`
+
+### Route Map
+Create \`.route-map.json\` in the workspace root for custom URL-to-file mappings. Supports static file serving, directory serving (with \`/*\` wildcards), and surface proxying (\`surface:id\`).`;
     }
 
     prompt += `

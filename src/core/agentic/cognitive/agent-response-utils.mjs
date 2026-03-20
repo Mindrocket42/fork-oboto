@@ -33,13 +33,21 @@ export function isIncompleteResponse(agent, content) {
  * Truncate a tool result to a maximum character count.
  * Preserves structure by truncating string content within the result.
  *
+ * Surface-reading tools (`read_surface`, `list_surfaces`) are exempt from
+ * the standard truncation limit because the agent MUST see the full
+ * component source code to fix or modify surfaces.  A 256KB safety limit
+ * is used instead.
+ *
  * @param {import('./agent.mjs').CognitiveAgent} agent
  * @param {unknown} result
  * @param {number} [maxChars]
+ * @param {string} [toolName] — name of the tool that produced this result
  * @returns {string}
  */
-export function truncateToolResult(agent, result, maxChars) {
-  const limit = maxChars || agent.config.agent?.maxToolResultChars || 4000;
+const SURFACE_READ_TOOLS = new Set(['read_surface', 'list_surfaces']);
+export function truncateToolResult(agent, result, maxChars, toolName) {
+  const isSurfaceRead = toolName && SURFACE_READ_TOOLS.has(toolName);
+  const limit = maxChars || (isSurfaceRead ? 256 * 1024 : (agent.config.agent?.maxToolResultChars || 4000));
   const str = typeof result === 'string' ? result : JSON.stringify(result);
   if (str.length <= limit) return str;
   return str.substring(0, limit) + '\n[...truncated, ' + (str.length - limit) + ' chars omitted]';

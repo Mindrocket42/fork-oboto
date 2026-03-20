@@ -2,6 +2,42 @@ import React, { useEffect } from 'react';
 import html2canvas from 'html2canvas';
 import { wsService } from '../../services/wsService';
 
+// ─── Scoped monkey-patch for html2canvas gradient rendering ────────────────
+// html2canvas can compute NaN stop offsets when rendering gradients on
+// zero-dimension elements or with CSS values it can't parse.  This causes
+// "Failed to execute 'addColorStop' on 'CanvasGradient': The provided double
+// value is non-finite."  We patch addColorStop to silently clamp non-finite
+// offsets rather than throwing — but ONLY during captures.
+//
+// Uses a reference counter so concurrent captures are safe — the patch stays
+// installed until the last capture completes.
+const _origAddColorStop = CanvasGradient.prototype.addColorStop;
+let _patchRefCount = 0;
+
+function installGradientPatch() {
+    if (_patchRefCount++ === 0) {
+        CanvasGradient.prototype.addColorStop = function (offset: number, color: string) {
+            if (!Number.isFinite(offset)) {
+                console.debug('[ScreenshotManager] Clamped non-finite gradient offset:', offset);
+                offset = offset < 0 || Object.is(offset, -Infinity) ? 0 : 1;
+            }
+            offset = Math.max(0, Math.min(1, offset));
+            try {
+                _origAddColorStop.call(this, offset, color);
+            } catch (e) {
+                console.debug('[ScreenshotManager] Skipped unparseable color stop:', color, e);
+            }
+        };
+    }
+}
+
+function uninstallGradientPatch() {
+    if (--_patchRefCount <= 0) {
+        _patchRefCount = 0;
+        CanvasGradient.prototype.addColorStop = _origAddColorStop;
+    }
+}
+
 /**
  * CSS Color Level 4 function names that html2canvas v1.x cannot parse.
  * When encountered (in style text or computed values), they must be
@@ -14,12 +50,16 @@ const UNSUPPORTED_COLOR_RE = /\b(color|oklch|oklab|lab|lch|color-mix)\s*\(/i;
 
 /** Color-related CSS properties that html2canvas tries to parse */
 const COLOR_PROPS = [
-    'color', 'background-color', 'background',
+    'color', 'background-color', 'background', 'background-image',
     'border-color',
     'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
     'outline-color', 'text-decoration-color', 'box-shadow', 'text-shadow',
     'caret-color', 'column-rule-color', 'fill', 'stroke',
     'accent-color',
+    // Gradient shorthand — html2canvas parses these for gradient color stops
+    'border-image', 'border-image-source',
+    'mask-image', '-webkit-mask-image',
+    'list-style-image',
 ];
 
 // ─── Balanced-parenthesis color function replacer ─────────────────────────
@@ -198,14 +238,20 @@ export const ScreenshotManager: React.FC = () => {
             // useCORS: true is often needed for external images, though surfaces are mostly local
             // logging: false to reduce noise
             // onclone: sanitize CSS Color Level 4 functions that html2canvas can't parse
-            const canvas = await html2canvas(element, {
-                useCORS: true,
-                logging: false,
-                backgroundColor: '#080808', // Match theme background
-                onclone: (clonedDoc: Document, clonedEl: HTMLElement) => {
-                    sanitizeUnsupportedColors(clonedDoc, clonedEl);
-                }
-            });
+            installGradientPatch();
+            let canvas: HTMLCanvasElement;
+            try {
+                canvas = await html2canvas(element, {
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#080808', // Match theme background
+                    onclone: (clonedDoc: Document, clonedEl: HTMLElement) => {
+                        sanitizeUnsupportedColors(clonedDoc, clonedEl);
+                    }
+                });
+            } finally {
+                uninstallGradientPatch();
+            }
 
             const image = canvas.toDataURL('image/jpeg', 0.8);
             

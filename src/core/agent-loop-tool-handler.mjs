@@ -209,10 +209,18 @@ export async function executeTools(ctx, payload, log, dispatch, engine) {
     // Truncate excessively large results (e.g. base64 screenshots from
     // capture_surface) before they enter history — they bloat context and
     // can cause the model to stall on the next turn with minimal output.
+    //
+    // Surface-reading tools (`read_surface`, `list_surfaces`) are exempt from
+    // the standard 12K text truncation because the agent MUST see the full
+    // component source code to fix or modify surfaces.  A 256KB safety limit
+    // is applied instead.
+    const SURFACE_READ_TOOLS = new Set(['read_surface', 'list_surfaces']);
     if (engine.ai && typeof engine.ai.conversationHistory !== 'undefined') {
         for (const res of results) {
             const historyEntry = { ...res };
             if (typeof historyEntry.content === 'string' && historyEntry.content.length > 8000) {
+                const isSurfaceRead = SURFACE_READ_TOOLS.has(res.name);
+                const hardLimit = isSurfaceRead ? 256 * 1024 : 12000; // 256KB vs 12K
                 // Try to detect and strip base64 image data from JSON tool output
                 // (e.g. capture_surface returns {screenshot: "<base64>..."})
                 try {
@@ -222,9 +230,9 @@ export async function executeTools(ctx, payload, log, dispatch, engine) {
                         historyEntry.content = JSON.stringify(parsed);
                     }
                 } catch {
-                    // Not JSON — just truncate if over 12K chars
-                    if (historyEntry.content.length > 12000) {
-                        historyEntry.content = historyEntry.content.substring(0, 12000) +
+                    // Not JSON — truncate if over the applicable limit
+                    if (historyEntry.content.length > hardLimit) {
+                        historyEntry.content = historyEntry.content.substring(0, hardLimit) +
                             '\n\n[... truncated — full result was ' + res.content.length + ' chars]';
                     }
                 }

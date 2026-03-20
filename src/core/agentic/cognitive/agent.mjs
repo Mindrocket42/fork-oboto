@@ -337,7 +337,7 @@ class CognitiveAgent {
         // ── Step 7-8: THINK / EXECUTE via lmscript agent loop ────────
         lmscriptMaxIter = options.maxIterations
           || this.config.agent?.maxLmscriptIterations
-          || 6;
+          || 25;
   
         emitCommentary('🧠 Sending request to AI model — waiting for response…');
         this._tracker.setActivity('Sending request to AI model — waiting for response…', { phase: 'llm-call' });
@@ -477,8 +477,8 @@ class CognitiveAgent {
   }
 
   /** @private */
-  _truncateToolResult(result, maxChars) {
-    return truncateToolResult(this, result, maxChars);
+  _truncateToolResult(result, maxChars, toolName) {
+    return truncateToolResult(this, result, maxChars, toolName);
   }
 
   /** @private */

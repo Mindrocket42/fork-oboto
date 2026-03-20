@@ -2,6 +2,16 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { consoleStyler } from '../ui/console-styler.mjs';
+import { mountDynamicRoutes } from './dynamic-router.mjs';
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 
 export class WorkspaceContentServer {
     constructor() {
@@ -39,6 +49,13 @@ export class WorkspaceContentServer {
             this.applyRouteMap(this.app, this.routeMap, workspaceRoot);
         } else {
             this.applyDefaultRoutes(this.app, workspaceRoot);
+        }
+
+        // Mount dynamic routes from workspace routes/, .routes/, api/ directories
+        try {
+            await mountDynamicRoutes(this.app, workspaceRoot);
+        } catch (e) {
+            consoleStyler.log('warning', `Failed to mount dynamic routes: ${e.message}`);
         }
 
         return new Promise((resolve, reject) => {
@@ -302,7 +319,7 @@ export class WorkspaceContentServer {
             return res.status(404).send(`
                 <html><body style="background:#111;color:#fff;font-family:sans-serif;padding:2rem;">
                 <h1>404 Surface Not Found</h1>
-                <p>ID: ${surfaceId}</p>
+                <p>ID: ${escapeHtml(surfaceId)}</p>
                 </body></html>
             `);
         }
@@ -311,7 +328,7 @@ export class WorkspaceContentServer {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Surface: ${surfaceData.name || surfaceId}</title>
+    <title>Surface: ${escapeHtml(surfaceData.name || surfaceId)}</title>
     <style>
         body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #fff; padding: 2rem; }
         pre { background: #333; padding: 1rem; border-radius: 4px; overflow: auto; }
@@ -322,8 +339,8 @@ export class WorkspaceContentServer {
 <body>
     <div id="content">
         <div class="card">
-            <h2 id="surface-name">${surfaceData.name || 'Untitled'}</h2>
-            <p id="surface-desc">${surfaceData.description || ''}</p>
+            <h2 id="surface-name">${escapeHtml(surfaceData.name || 'Untitled')}</h2>
+            <p id="surface-desc">${escapeHtml(surfaceData.description || '')}</p>
         </div>
         
         <h3>Components</h3>
@@ -334,7 +351,7 @@ export class WorkspaceContentServer {
     </div>
 
     <script>
-        const data = ${JSON.stringify(surfaceData)};
+        const data = ${JSON.stringify(surfaceData).replace(/</g, '\\u003c')};
         
         const comps = data.components || [];
         const compsContainer = document.getElementById('components-list');
@@ -345,10 +362,15 @@ export class WorkspaceContentServer {
             comps.forEach(c => {
                 const div = document.createElement('div');
                 div.className = 'component';
-                div.innerHTML = '<strong>' + c.name + '</strong>' + 
-                    (c.props && Object.keys(c.props).length > 0 
-                        ? '<pre style="margin-top:0.5rem;font-size:0.8em">' + JSON.stringify(c.props, null, 2) + '</pre>' 
-                        : '');
+                const nameEl = document.createElement('strong');
+                nameEl.textContent = c.name;
+                div.appendChild(nameEl);
+                if (c.props && Object.keys(c.props).length > 0) {
+                    const pre = document.createElement('pre');
+                    pre.style.cssText = 'margin-top:0.5rem;font-size:0.8em';
+                    pre.textContent = JSON.stringify(c.props, null, 2);
+                    div.appendChild(pre);
+                }
                 compsContainer.appendChild(div);
             });
         }
