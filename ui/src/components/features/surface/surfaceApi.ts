@@ -55,6 +55,58 @@ export interface SurfaceFetchResponse<T = unknown> {
 const _handlerRegistry = new Map<string, HandlerDefinition>();
 
 export const surfaceApi = {
+  // ─── Workspace Port ───
+
+  /** The workspace content server port, set reactively from App.tsx */
+  workspacePort: null as number | null,
+
+  /**
+   * Surface sandbox network mode.
+   * - `'strict'` (default): fetch restricted to localhost, XMLHttpRequest/WebSocket/EventSource blocked
+   * - `'permissive'`: native fetch and all network APIs available (no restrictions)
+   *
+   * Controlled via workspace settings (`surface.sandboxMode`).
+   */
+  sandboxMode: 'strict' as 'strict' | 'permissive',
+
+  /**
+   * Set the sandbox mode. Called from App.tsx when workspace settings change.
+   */
+  setSandboxMode(mode: 'strict' | 'permissive') {
+    surfaceApi.sandboxMode = mode;
+  },
+
+  /**
+   * Set the workspace content server port.
+   * Called from useUIState sync in App.tsx when the port changes.
+   */
+  setWorkspacePort(port: number | null) {
+    surfaceApi.workspacePort = port;
+  },
+
+  /**
+   * Construct an absolute URL to the workspace content server.
+   * Returns null if no workspace port is set.
+   * @param path - path on the content server (e.g. '/routes/items' or '/images/foo.png')
+   */
+  contentServerUrl(path?: string): string | null {
+    if (surfaceApi.workspacePort == null) return null;
+    const base = `http://localhost:${surfaceApi.workspacePort}`;
+    if (!path) return base;
+    return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+  },
+
+  /**
+   * Fetch a workspace route via the browser's native fetch (not WebSocket proxy).
+   * Uses the content server URL with the dynamic port. CORS is already configured.
+   * Returns null if no workspace port is set.
+   */
+  async fetchRoute(routePath: string, options?: RequestInit): Promise<Response | null> {
+    const url = surfaceApi.contentServerUrl(routePath);
+    if (!url) return null;
+    return fetch(url, options);
+  },
+
   // ─── Messaging ───
   sendMessage: (type: string, payload: unknown) => {
     wsService.sendMessage(type, payload);

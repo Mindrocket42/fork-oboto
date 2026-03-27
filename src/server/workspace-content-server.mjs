@@ -2,7 +2,9 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { consoleStyler } from '../ui/console-styler.mjs';
+import { localhostCors } from './cors-middleware.mjs';
 import { mountDynamicRoutes } from './dynamic-router.mjs';
+import { WorkspaceServerLog } from './workspace-server-log.mjs';
 
 function escapeHtml(str) {
     return String(str)
@@ -20,6 +22,10 @@ export class WorkspaceContentServer {
         this.port = null;
         this.workspaceRoot = null;
         this.routeMap = null;
+        /** @private @type {WorkspaceServerLog|null} */
+        this._serverLog = null;
+        /** @private @type {Object|null} — parsed .oboto.json workspace config */
+        this._workspaceConfig = null;
     }
 
     /**
@@ -35,13 +41,26 @@ export class WorkspaceContentServer {
         this.workspaceRoot = workspaceRoot;
         this.app = express();
         
-        // Load optional route map
-        this.routeMap = await this.loadRouteMap(workspaceRoot);
+        // Create server log instance
+        this._serverLog = new WorkspaceServerLog(workspaceRoot);
 
-        // Enable CORS for main UI to fetch if needed
+        // Load optional route map and workspace config
+        this.routeMap = await this.loadRouteMap(workspaceRoot);
+        this._workspaceConfig = await this._loadWorkspaceConfig(workspaceRoot);
+
+        this.app.use(localhostCors());
+
+        // Request logging middleware — unified: logs errors and normal requests
         this.app.use((req, res, next) => {
-            res.header('Access-Control-Allow-Origin', '*');
-            res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+            const start = Date.now();
+            res.on('finish', () => {
+                const duration = Date.now() - start;
+                if (res.locals._serverError) {
+                    this._serverLog?.logError(req.method, req.originalUrl, res.locals._serverError, duration);
+                } else {
+                    this._serverLog?.logRequest(req.method, req.originalUrl, res.statusCode, duration);
+                }
+            });
             next();
         });
 
@@ -58,6 +77,15 @@ export class WorkspaceContentServer {
             consoleStyler.log('warning', `Failed to mount dynamic routes: ${e.message}`);
         }
 
+        // Error handling middleware (must be after all routes)
+        // Stashes the error on res.locals so the finish listener logs it once
+        this.app.use((err, req, res, next) => {
+            res.locals._serverError = err;
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
         return new Promise((resolve, reject) => {
             this.server = this.app.listen(0, () => {
                 this.port = this.server.address().port;
@@ -73,6 +101,10 @@ export class WorkspaceContentServer {
     }
 
     async stop() {
+        if (this._serverLog) {
+            this._serverLog.destroy();
+            this._serverLog = null;
+        }
         if (this.server) {
             return new Promise((resolve) => {
                 this.server.close(() => {
@@ -88,6 +120,42 @@ export class WorkspaceContentServer {
 
     getPort() {
         return this.port;
+    }
+
+    /**
+     * Return the WorkspaceServerLog instance for this server.
+     * @returns {WorkspaceServerLog|null}
+     */
+    getServerLog() {
+        return this._serverLog;
+    }
+
+    /**
+     * Return the surface sandbox mode from workspace config.
+     * @returns {'strict'|'permissive'}
+     */
+    getSurfaceSandboxMode() {
+        const mode = this._workspaceConfig?.surface?.sandboxMode;
+        return mode === 'permissive' ? 'permissive' : 'strict';
+    }
+
+    /**
+     * Load .oboto.json workspace config from the workspace root.
+     * @private
+     * @param {string} workspaceRoot
+     * @returns {Promise<Object|null>}
+     */
+    async _loadWorkspaceConfig(workspaceRoot) {
+        const configPath = path.join(workspaceRoot, '.oboto.json');
+        if (fs.existsSync(configPath)) {
+            try {
+                const content = await fs.promises.readFile(configPath, 'utf8');
+                return JSON.parse(content);
+            } catch (e) {
+                consoleStyler.log('warning', `Failed to load .oboto.json: ${e.message}`);
+            }
+        }
+        return null;
     }
 
     async loadRouteMap(workspaceRoot) {

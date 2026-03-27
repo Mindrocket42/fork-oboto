@@ -60,6 +60,9 @@ export class SurfaceMutationResult {
 
     /** @type {string|null} */
     this.fixGuidance = null;
+
+    /** @type {string[]} */
+    this.recentServerLogs = [];
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -128,6 +131,11 @@ export class SurfaceMutationResult {
   /** @param {string} warning */
   addWarning(warning) {
     this.warnings.push(warning);
+  }
+
+  /** @param {string[]} logs */
+  setRecentServerLogs(logs) {
+    this.recentServerLogs = logs || [];
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -220,6 +228,16 @@ export class SurfaceMutationResult {
       lines.push('');
       lines.push('Fix Guidance:');
       lines.push(this.fixGuidance);
+    }
+
+    if (this.recentServerLogs.length > 0) {
+      lines.push('');
+      lines.push('Recent Workspace Server Logs:');
+      for (const log of this.recentServerLogs) {
+        lines.push(`  ${log}`);
+      }
+      lines.push('');
+      lines.push('📋 Full server log available at: server.log (in workspace root)');
     }
 
     if (this.autoReverted) {

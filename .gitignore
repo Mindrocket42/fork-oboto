@@ -81,3 +81,6 @@ data/
 
 # Windows build artifacts
 win-build/
+
+# Workspace server logs
+server.log

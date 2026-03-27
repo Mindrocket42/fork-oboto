@@ -68,7 +68,7 @@ const ALLOWED_TOOLS = new Set([
     // Surfaces
     'list_surfaces',
     // Skills (full CRUD + execution)
-    'list_skills', 'read_skill', 'use_skill', 'create_skill', 'edit_skill', 'delete_skill', 'add_npm_skill',
+    'list_skills', 'read_skill', 'use_skill', 'create_skill', 'edit_skill', 'delete_skill', 'promote_skill', 'add_npm_skill',
     // Scheduling & recurring tasks
     'create_recurring_task', 'list_recurring_tasks', 'manage_recurring_task',
     // Background tasks
@@ -231,7 +231,16 @@ export class DirectActionExecutor {
      */
     async fetchDirect(url, options = {}) {
         const pinnedUrl = await this._validateUrl(url);
-        // Use the pinned URL (with resolved IP) to defeat DNS rebinding
+
+        const parsed = new URL(url);
+        const isHttps = parsed.protocol === 'https:';
+
+        // For HTTP: use the pinned URL (hostname replaced with resolved IP)
+        // to defeat DNS rebinding.
+        // For HTTPS: also use the pinned URL BUT set the Host header and
+        // TLS servername so certificate validation and SNI use the original
+        // hostname.  This closes the TOCTOU window between _validateUrl()
+        // and fetch()'s own DNS resolution.
         const effectiveUrl = pinnedUrl || url;
 
         const method = (options.method || 'GET').toUpperCase();
@@ -242,7 +251,7 @@ export class DirectActionExecutor {
         // header so the target server can route the request correctly via
         // virtual hosting. Without this, the server sees the IP as the Host.
         if (pinnedUrl) {
-            const originalHost = new URL(url).host;
+            const originalHost = parsed.host;
             if (!headers['Host'] && !headers['host']) {
                 headers['Host'] = originalHost;
             }
@@ -253,6 +262,31 @@ export class DirectActionExecutor {
             headers,
             signal: AbortSignal.timeout(timeout),
         };
+
+        // For HTTPS with a pinned IP: use undici's Agent with a custom
+        // `connect` option that sets `servername` to the original hostname.
+        // This ensures TLS/SNI certificate verification uses the hostname
+        // (not the numeric IP), while the TCP connection is made to the
+        // validated IP — closing the DNS rebinding TOCTOU window.
+        let agent;
+        if (isHttps && pinnedUrl) {
+            try {
+                const { Agent } = await import('undici');
+                agent = new Agent({
+                    connect: {
+                        // servername tells TLS to send the original hostname
+                        // in the SNI extension and verify the cert against it,
+                        // even though we're connecting to the numeric IP.
+                        servername: parsed.hostname,
+                    },
+                });
+                fetchOptions.dispatcher = agent;
+            } catch {
+                // If undici is not available (shouldn't happen on Node 18+),
+                // fall back to using the original URL (no DNS pinning for HTTPS).
+                // _validateUrl() still ran, so the risk is only the TOCTOU window.
+            }
+        }
 
         if (options.body && method !== 'GET' && method !== 'HEAD') {
             if (typeof options.body === 'string') {
@@ -265,62 +299,68 @@ export class DirectActionExecutor {
             }
         }
 
-        const response = await fetch(effectiveUrl, fetchOptions);
-
-        // Read response with streaming size enforcement
-        const contentType = response.headers.get('content-type') || '';
-        let body;
-
-        const reader = response.body?.getReader();
-        if (!reader) {
-            throw new Error('Response body is not readable');
-        }
-
-        const decodedParts = [];
-        let totalBytes = 0;
-        const decoder = new TextDecoder();
-
         try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+            const response = await fetch(effectiveUrl, fetchOptions);
 
-                totalBytes += value.byteLength;
-                if (totalBytes > MAX_FETCH_RESPONSE_SIZE) {
-                    reader.cancel();
-                    throw new Error(`Response body exceeds ${MAX_FETCH_RESPONSE_SIZE} byte limit (read ${totalBytes} so far)`);
-                }
-                decodedParts.push(decoder.decode(value, { stream: true }));
+            // Read response with streaming size enforcement
+            const contentType = response.headers.get('content-type') || '';
+            let body;
+
+            const reader = response.body?.getReader();
+            if (!reader) {
+                throw new Error('Response body is not readable');
             }
-        } finally {
-            reader.releaseLock();
-        }
 
-        // Flush remaining bytes (handles multi-byte characters split across chunks)
-        decodedParts.push(decoder.decode());
-        const text = decodedParts.join('');
+            const decodedParts = [];
+            let totalBytes = 0;
+            const decoder = new TextDecoder();
 
-        if (contentType.includes('application/json')) {
             try {
-                body = JSON.parse(text);
-            } catch {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    totalBytes += value.byteLength;
+                    if (totalBytes > MAX_FETCH_RESPONSE_SIZE) {
+                        reader.cancel();
+                        throw new Error(`Response body exceeds ${MAX_FETCH_RESPONSE_SIZE} byte limit (read ${totalBytes} so far)`);
+                    }
+                    decodedParts.push(decoder.decode(value, { stream: true }));
+                }
+            } finally {
+                reader.releaseLock();
+            }
+
+            // Flush remaining bytes (handles multi-byte characters split across chunks)
+            decodedParts.push(decoder.decode());
+            const text = decodedParts.join('');
+
+            if (contentType.includes('application/json')) {
+                try {
+                    body = JSON.parse(text);
+                } catch {
+                    body = text;
+                }
+            } else {
                 body = text;
             }
-        } else {
-            body = text;
+
+            // Extract response headers as plain object
+            const responseHeaders = {};
+            response.headers.forEach((v, k) => { responseHeaders[k] = v; });
+
+            return {
+                status: response.status,
+                statusText: response.statusText,
+                headers: responseHeaders,
+                body,
+                ok: response.ok,
+            };
+        } finally {
+            if (agent) {
+                try { await agent.close(); } catch (_) { /* ignore close errors */ }
+            }
         }
-
-        // Extract response headers as plain object
-        const responseHeaders = {};
-        response.headers.forEach((v, k) => { responseHeaders[k] = v; });
-
-        return {
-            status: response.status,
-            statusText: response.statusText,
-            headers: responseHeaders,
-            body,
-            ok: response.ok,
-        };
     }
 
     // ─── Private: Execution Strategies ───────────────────────────────

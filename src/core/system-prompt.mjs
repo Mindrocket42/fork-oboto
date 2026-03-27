@@ -11,7 +11,8 @@ export function createSystemPrompt(workingDir, workspace = null, manifestContent
     includeStyling = false,
     includeWorkflows = false,
     pluginsSummary = "",
-    dynamicRoutesEnabled = false
+    dynamicRoutesEnabled = false,
+    contentServerPort = null
 } = {}) {
     let prompt = '';
 
@@ -446,12 +447,19 @@ Use plugin-provided tools just like any other tool — they appear in your tool 
 
 ## Workspace Content Server
 
-A dedicated HTTP server runs on a dynamically-assigned port for each workspace. It starts automatically when the workspace opens and restarts when you switch workspaces. The port is communicated to the UI client at connection time.
+A dedicated HTTP server runs on a dynamically-assigned port for each workspace. It starts automatically when the workspace opens and restarts when you switch workspaces.
+${contentServerPort ? `**The workspace content server is currently running on port ${contentServerPort}.**\nBase URL: \`http://localhost:${contentServerPort}\`\nYou can test routes with: \`curl http://localhost:${contentServerPort}/api/...\`` : 'The workspace content server port is not yet available.'}
 
 ### Static Assets
 - Place files in \`{workspace}/public/\` — they are served at \`/\` on the content server (e.g. \`public/data.json\` → \`/data.json\`).
 - Generated images are available at \`/images/\`.
-- Surfaces can reference these assets using relative URLs from the content server.`;
+- Surfaces can reference these assets using relative URLs from the content server.
+
+### Server Logging
+The workspace content server logs all HTTP requests and errors to \`server.log\` in the workspace root.
+- Recent server logs are automatically included in surface mutation results (\`update_surface_component\` output).
+- For full debugging, read \`server.log\` directly — it contains timestamped JSON-lines with method, URL, status code, duration, and error details.
+- Use this to diagnose issues with workspace routes, missing files, CORS problems, or surface asset loading failures.`;
 
     if (dynamicRoutesEnabled) {
         prompt += `
@@ -460,7 +468,9 @@ A dedicated HTTP server runs on a dynamically-assigned port for each workspace. 
 Create \`.mjs\` or \`.js\` files in \`routes/\`, \`.routes/\`, or \`api/\` directories to add HTTP endpoints:
 
 1. Export an async \`route\` function: \`export async function route(req, res) { ... }\`
-2. File path maps to URL: \`routes/data.mjs\` → \`/routes/data\`, \`api/users/index.mjs\` → \`/api/users\`
+2. File path maps to URL:
+   - \`routes/\` and \`.routes/\` are **container** directories — the directory name is stripped: \`routes/data.mjs\` → \`/data\`, \`routes/api/klines.mjs\` → \`/api/klines\`
+   - \`api/\` is a **namespace** directory — the directory name is kept: \`api/users/index.mjs\` → \`/api/users\`
 3. Routes handle all HTTP methods (GET, POST, PUT, DELETE) with full Express req/res access.
 4. Routes reload automatically on workspace switch.
 5. Use \`.routes/\` (hidden directory) for routes you don't want visible in the workspace file listing.
@@ -477,14 +487,25 @@ export async function route(req, res) {
 \`\`\`
 
 ### Surface + Route Integration
-Surfaces run in an iframe in the UI and can fetch data from workspace routes. The content server base URL is available to surfaces via their execution context.
+Surfaces run as sandboxed React components (not iframes) and can fetch data from workspace routes using \`surfaceApi\`.
 
-**Example**: A surface fetching from the route above:
-\`\`\`js
-const res = await fetch(\`/routes/items\`);
-const data = await res.json();
-// Use data.items to render dynamic content
+Available methods:
+- \`surfaceApi.contentServerUrl(path)\` — returns the full URL to the workspace content server (e.g. \`http://localhost:54321/items\`)
+- \`surfaceApi.fetchRoute(path, options?)\` — fetches from a workspace route using the browser's native \`fetch\` with the correct port
+- \`surfaceApi.fetch(url)\` — proxy-based fetch that routes through WebSocket (works for any URL)
+- \`fetch(url)\` — the browser's native \`fetch\` is also available in the sandbox (restricted to localhost)
+
+Example — fetching data from a workspace route (\`routes/items.mjs\` → \`/items\`):
+\`\`\`jsx
+const [items, setItems] = useState([]);
+useEffect(() => {
+  surfaceApi.fetchRoute('/items')
+    .then(res => res?.json())
+    .then(data => data && setItems(data.items));
+}, []);
 \`\`\`
+
+**Important:** Do NOT use relative URLs like \`fetch('/items')\` — surfaces run on the main app origin, not the workspace content server origin. Always use \`surfaceApi.fetchRoute()\` or \`surfaceApi.contentServerUrl()\` to construct the correct URL.
 
 ### Route Map
 Create \`.route-map.json\` in the workspace root for custom URL-to-file mappings. Supports static file serving, directory serving (with \`/*\` wildcards), and surface proxying (\`surface:id\`).`;

@@ -61,13 +61,68 @@ export function createFileCommands(fileTools) {
 
         ls: {
             help: 'List files in current workspace or given path.',
-            usage: 'ls [path] [-r]',
+            usage: 'ls [path] [-r] [-a] [-l]',
             async execute(args, stdin) {
-                const recursive = args.includes('-r') || args.includes('--recursive');
-                const filteredArgs = args.filter(a => a !== '-r' && a !== '--recursive');
-                const dirPath = filteredArgs[0] || '.';
+                // Parse flags — support both separate (-r -a) and combined (-la, -ral) forms
+                let recursive = false;
+                let showHidden = false;
+                let longFormat = false;
 
-                const result = await fileTools.listFiles({ path: dirPath, recursive });
+                const positionalArgs = [];
+                for (const arg of args) {
+                    if (arg === '--recursive') {
+                        recursive = true;
+                    } else if (arg.startsWith('-') && arg.length > 1 && !arg.startsWith('--')) {
+                        // Parse combined short flags like -la, -ral, -al
+                        for (const ch of arg.slice(1)) {
+                            if (ch === 'r' || ch === 'R') recursive = true;
+                            else if (ch === 'a' || ch === 'A') showHidden = true;
+                            else if (ch === 'l') longFormat = true;
+                            // Silently ignore unknown flags (like real ls does)
+                        }
+                    } else {
+                        positionalArgs.push(arg);
+                    }
+                }
+
+                const dirPath = positionalArgs[0] || '.';
+
+                // If long format requested, do a stat-based listing ourselves
+                if (longFormat) {
+                    try {
+                        // Use validatePath to enforce workspace confinement —
+                        // prevents path traversal (e.g. `ls -l ../../etc`)
+                        const resolvedDir = fileTools.validatePath(dirPath);
+                        if (!fs.existsSync(resolvedDir) || !fs.statSync(resolvedDir).isDirectory()) {
+                            return { output: `[error] ls: not a directory: ${dirPath}`, exitCode: 1 };
+                        }
+                        const entries = await fs.promises.readdir(resolvedDir, { withFileTypes: true });
+                        const lines = [];
+                        for (const entry of entries) {
+                            if (!showHidden && entry.name.startsWith('.')) continue;
+                            if (entry.name === 'node_modules' || entry.name === '.git') continue;
+                            const fullPath = path.join(resolvedDir, entry.name);
+                            try {
+                                const stat = await fs.promises.stat(fullPath);
+                                const size = String(stat.size).padStart(8);
+                                const date = stat.mtime.toISOString().slice(0, 16).replace('T', ' ');
+                                const type = entry.isDirectory() ? 'd' : '-';
+                                const name = entry.isDirectory() ? `${entry.name}/` : entry.name;
+                                lines.push(`${type} ${size} ${date} ${name}`);
+                            } catch {
+                                lines.push(`? ${' '.repeat(8)} ${'?'.repeat(16)} ${entry.name}`);
+                            }
+                        }
+                        if (lines.length === 0) {
+                            return { output: `(empty directory)`, exitCode: 0 };
+                        }
+                        return { output: lines.join('\n'), exitCode: 0 };
+                    } catch (err) {
+                        return { output: `[error] ls: ${err.message}`, exitCode: 1 };
+                    }
+                }
+
+                const result = await fileTools.listFiles({ path: dirPath, recursive, includeHidden: showHidden });
 
                 if (result.startsWith('[error]')) {
                     return { output: result, exitCode: 1 };

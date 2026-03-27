@@ -119,7 +119,7 @@ export class FileTools {
 
     // List files in directory
     async listFiles(args) {
-        const { path: dirPath = '.', recursive = false, _allowOutside = false } = args;
+        const { path: dirPath = '.', recursive = false, includeHidden = false, _allowOutside = false } = args;
         
         consoleStyler.log('working', `Listing files in: ${dirPath} (recursive: ${recursive})`);
         
@@ -145,9 +145,12 @@ export class FileTools {
                 for (const entry of entries) {
                     if (files.length >= MAX_FILES) break;
 
-                    // Skip hidden files/dirs (starting with .) except specific allowed ones if needed
-                    // And explicitly skip node_modules and .git
-                    if (entry.name === 'node_modules' || entry.name === '.git' || (entry.name.startsWith('.') && entry.name !== '.cursorrules' && entry.name !== '.env')) {
+                    // Skip hidden files/dirs unless includeHidden is set
+                    // Always skip node_modules and .git for sanity
+                    if (entry.name === 'node_modules' || entry.name === '.git') {
+                        continue;
+                    }
+                    if (!includeHidden && entry.name.startsWith('.') && entry.name !== '.cursorrules' && entry.name !== '.env') {
                         continue;
                     }
 

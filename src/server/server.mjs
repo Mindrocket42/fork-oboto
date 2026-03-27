@@ -2,11 +2,13 @@ import express from 'express';
 import { AiMan } from '../lib/index.mjs';
 import bodyParser from 'body-parser';
 import { consoleStyler } from '../ui/console-styler.mjs';
+import { localhostCors } from './cors-middleware.mjs';
 
 export function createServer(config = {}) {
     const app = express();
     app.use(bodyParser.json({ limit: '10mb' }));
-    
+    app.use(localhostCors());
+
     // Session store: one AiMan per session
     const sessions = new Map();
     

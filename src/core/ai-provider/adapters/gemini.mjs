@@ -54,6 +54,7 @@ export function sanitizeSchemaForGemini(schema) {
     delete clean.minimum;
     delete clean.maximum;
     delete clean.$schema;
+    delete clean.additionalProperties;
 
     // Gemini expects `required` only as an array of property names at the object level.
     // Remove boolean `required` values on individual properties (OpenAI allows this).
@@ -121,6 +122,19 @@ export function openaiMessagesToGemini(messages) {
             // If we have preserved Gemini parts (from a previous round-trip),
             // use them directly to preserve thought/thoughtSignature fields
             if (msg._geminiParts && Array.isArray(msg._geminiParts)) {
+                // Restore thoughtSignature from tool_calls if lost during serialization
+                if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
+                    let tcIndex = 0;
+                    for (const part of msg._geminiParts) {
+                        if (part.functionCall && tcIndex < msg.tool_calls.length) {
+                            const tc = msg.tool_calls[tcIndex];
+                            if (tc._thoughtSignature && !part.thoughtSignature) {
+                                part.thoughtSignature = tc._thoughtSignature;
+                            }
+                            tcIndex++;
+                        }
+                    }
+                }
                 contents.push({ role: 'model', parts: msg._geminiParts });
                 continue;
             }
@@ -286,9 +300,20 @@ export function geminiResponseToOpenai(geminiResponse) {
         }));
     }
 
-    // Preserve the FULL original parts array for faithful reconstruction
-    // This ensures thought parts and thoughtSignatures survive the round-trip
-    message._geminiParts = parts;
+    // Deep clone to plain objects to ensure getters/non-enumerables survive JSON.stringify
+    message._geminiParts = parts.map(p => {
+      const plain = JSON.parse(JSON.stringify(p));
+      // Explicitly copy fields that might not stringify from SDK class instances
+      if (p.thoughtSignature !== undefined) plain.thoughtSignature = p.thoughtSignature;
+      if (p.thought !== undefined) plain.thought = p.thought;
+      if (p.functionCall) {
+        plain.functionCall = {
+          name: p.functionCall.name,
+          args: p.functionCall.args,
+        };
+      }
+      return plain;
+    });
 
     return {
         choices: [{

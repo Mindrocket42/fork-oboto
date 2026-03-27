@@ -414,6 +414,17 @@ export class StreamController {
   // ════════════════════════════════════════════════════════════════════
 
   /**
+   * Add tokens to the turn metrics counter.
+   * Provides a public API so callers don't need to access _turnMetrics directly.
+   * @param {number} count — number of tokens to add
+   */
+  addTokens(count) {
+    if (typeof count === 'number' && count > 0) {
+      this._turnMetrics.tokens += count;
+    }
+  }
+
+  /**
    * Snapshot of per-turn metrics.
    * @returns {{ llmCalls: number, toolCalls: number, tokens: number, cost: number }}
    */

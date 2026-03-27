@@ -325,6 +325,7 @@ export class ToolExecutor {
         this.registerTool('create_skill', this.skillHandlers.createSkill.bind(this.skillHandlers));
         this.registerTool('edit_skill', this.skillHandlers.editSkill.bind(this.skillHandlers));
         this.registerTool('delete_skill', this.skillHandlers.deleteSkill.bind(this.skillHandlers));
+        this.registerTool('promote_skill', this.skillHandlers.promoteSkill.bind(this.skillHandlers));
 
         // Custom Tools
         this.registerTool('list_custom_tools', this.listCustomTools.bind(this));

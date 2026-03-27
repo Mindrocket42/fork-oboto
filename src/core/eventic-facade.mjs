@@ -7,7 +7,7 @@ import { TaskCheckpointManager } from './task-checkpoint-manager.mjs';
 import { config } from '../config.mjs';
 
 // Agentic provider system
-import { AgenticProviderRegistry, EventicProvider, CognitiveProvider, LMScriptProvider, MahaProvider, MegacodeProvider, UnifiedProvider } from './agentic/index.mjs';
+import { AgenticProviderRegistry, UnifiedProvider, NewAgentProvider } from './agentic/index.mjs';
 
 // Managers needed for ToolExecutor
 import { ToolExecutor } from '../execution/tool-executor.mjs';
@@ -157,48 +157,22 @@ export class EventicFacade {
         // the AGENT_START dispatch in run()/runStream().
         this.agenticRegistry = new AgenticProviderRegistry();
 
-        // Default: Eventic agent loop (identical to previous behavior)
-        const eventicProvider = new EventicProvider();
-        eventicProvider.install(this.engine); // registers AGENT_START etc.
-        this.agenticRegistry.register(eventicProvider);
-
-        // Alternate: TinyAleph cognitive agent loop
-        const cognitiveProvider = new CognitiveProvider();
-        this.agenticRegistry.register(cognitiveProvider);
-
-        // LMScript CLI-driven agent loop with dual holographic memory
-        const lmscriptProvider = new LMScriptProvider();
-        this.agenticRegistry.register(lmscriptProvider);
-
-        // Maha unified provider (routes to the best-fit provider per request)
-        const mahaProvider = new MahaProvider();
-        this.agenticRegistry.register(mahaProvider);
-
-        // Megacode provider for large-scale code generation
-        const megacodeProvider = new MegacodeProvider();
-        this.agenticRegistry.register(megacodeProvider);
-
         // Unified provider — combines cognitive, safety, memory & learning layers
         const unifiedProvider = new UnifiedProvider();
         this.agenticRegistry.register(unifiedProvider);
 
-        // Activate the configured provider (default: maha).
-        // Changed from 'eventic' → 'cognitive' in 2026-02-26, then to 'maha' in 2026-03-18.
-        // NOTE: If the user explicitly set agenticProvider in config, that is
-        // honored.  The default only applies to fresh installations.
-        const defaultAgenticProvider = config?.ai?.agenticProvider || 'maha';
-        if (!config?.ai?.agenticProvider) {
-            consoleStyler.log('system', `Agentic provider defaulting to "${defaultAgenticProvider}" (override via config.ai.agenticProvider)`);
-        }
+        // NewAgent provider — autonomous CLI-style agent with VFS, dual memory,
+        // AST pipeline, and batch command execution via AgentRunner
+        const newAgentProvider = new NewAgentProvider();
+        this.agenticRegistry.register(newAgentProvider);
+
+        // Activate the configured provider (default: unified).
+        const defaultAgenticProvider = config?.ai?.agenticProvider || 'unified';
         this._agenticInitPromise = this.agenticRegistry.setActive(
             defaultAgenticProvider,
             this._getAgenticDeps()
         ).catch(err => {
-            consoleStyler.log('warning', `Failed to activate agentic provider "${defaultAgenticProvider}", falling back to eventic: ${err.message}`);
-            return this.agenticRegistry.setActive('eventic', this._getAgenticDeps());
-        }).catch(err => {
-            // Both primary and fallback failed — log and let run()/runStream() handle the null provider
-            consoleStyler.log('error', `All agentic providers failed to activate: ${err.message}`);
+            consoleStyler.log('error', `Failed to activate agentic provider "${defaultAgenticProvider}": ${err.message}`);
         });
 
         // Track the facade's busy state
@@ -241,8 +215,11 @@ export class EventicFacade {
             historyManager: this.historyManager,
             eventBus: this.eventBus,
             consciousness: this.consciousness,
+            resoLangService: this.resoLangService,
             workingDir: this.workingDir,
             engine: this.engine,
+            config,
+            userConfig: config?.ai?.agentic || {},
             facade: this
         };
     }

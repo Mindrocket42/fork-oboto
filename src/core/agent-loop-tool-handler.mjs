@@ -1,7 +1,7 @@
 import { emitStatus, emitCommentary, describeToolCall, buildToolRoundNarrative } from './status-reporter.mjs';
 import { isCancellationError } from './ai-provider.mjs';
 import { sanitizeDirectMarkdown } from '../lib/sanitize-markdown.mjs';
-import { hasToolError, evaluateToolResults } from './agent-loop-helpers.mjs';
+import { hasToolError, evaluateToolResults, gracefulCleanup } from './agent-loop-helpers.mjs';
 
 /**
  * Execute tool calls from the AI response and return results.
@@ -44,9 +44,17 @@ export async function executeTools(ctx, payload, log, dispatch, engine) {
         let args = toolCall.function.arguments;
         let argParseError = null;
         if (typeof args === 'string') {
-            try { args = JSON.parse(args); } catch (e) {
-                argParseError = e;
-                args = {}; // Prevent downstream crashes from string destructuring
+            // Models sometimes send empty or whitespace-only arguments for
+            // no-arg tools (e.g. list_surfaces).  Treat as empty object
+            // rather than letting JSON.parse("") throw "Unexpected end of JSON input".
+            const trimmed = args.trim();
+            if (!trimmed) {
+                args = {};
+            } else {
+                try { args = JSON.parse(trimmed); } catch (e) {
+                    argParseError = e;
+                    args = {}; // Prevent downstream crashes from string destructuring
+                }
             }
         }
         
@@ -259,6 +267,11 @@ export async function executeTools(ctx, payload, log, dispatch, engine) {
     if (ctx.stateManager) {
         await ctx.stateManager.syncHistory(engine);
         await ctx.stateManager.checkpoint(ctx, engine, { phase: 'POST_TOOLS' });
+    }
+
+    if (signal && signal.aborted) {
+        await gracefulCleanup(ctx, engine);
+        return { completed: true, response: '🛑 Task cancelled.' };
     }
 
     // Inline tool evaluation (formerly CRITIC_EVALUATE_TOOLS handler).

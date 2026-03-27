@@ -39,7 +39,8 @@ export async function updateSystemPrompt(facade) {
     }
     facade.openclawAvailable = !!(facade.openClawManager && facade.openClawManager.client && facade.openClawManager.client.isConnected);
     const pluginsSummary = getPluginsSummary(facade);
-    const dynamicRoutesEnabled = process.env.OBOTO_DYNAMIC_ROUTES === 'true';
+    const dynamicRoutesEnabled = process.env.OBOTO_DYNAMIC_ROUTES !== 'false';
+    const contentServerPort = facade.workspaceContentServer?.getPort?.() || null;
     const currentSystemPrompt = createSystemPrompt(
         facade.workingDir,
         facade.workspaceManager.getCurrentWorkspace(),
@@ -47,7 +48,7 @@ export async function updateSystemPrompt(facade) {
         {
             openclawAvailable: facade.openclawAvailable, personaContent, skillsSummary,
             includeSurfaces: true, includeStyling: true, includeWorkflows: true,
-            pluginsSummary, dynamicRoutesEnabled
+            pluginsSummary, dynamicRoutesEnabled, contentServerPort
         }
     );
     facade.aiProvider.systemPrompt = currentSystemPrompt;
@@ -149,7 +150,8 @@ export function getGuidanceQueue(facade) {
  */
 export function buildSystemPrompt(facade, personaContent, skillsSummary) {
     const pluginsSummary = getPluginsSummary(facade);
-    const dynamicRoutesEnabled = process.env.OBOTO_DYNAMIC_ROUTES === 'true';
+    const dynamicRoutesEnabled = process.env.OBOTO_DYNAMIC_ROUTES !== 'false';
+    const contentServerPort = facade.workspaceContentServer?.getPort?.() || null;
     return createSystemPrompt(
         facade.workingDir,
         facade.workspaceManager.getCurrentWorkspace(),
@@ -157,7 +159,7 @@ export function buildSystemPrompt(facade, personaContent, skillsSummary) {
         {
             openclawAvailable: facade.openclawAvailable, personaContent, skillsSummary,
             includeSurfaces: true, includeStyling: true, includeWorkflows: true,
-            pluginsSummary, dynamicRoutesEnabled
+            pluginsSummary, dynamicRoutesEnabled, contentServerPort
         }
     );
 }

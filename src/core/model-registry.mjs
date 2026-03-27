@@ -55,6 +55,8 @@ const FALLBACK_MODELS = {
         supportsReasoningEffort: false,
         costTier: 'medium',
         reasoningCapability: 'high',
+        inputCostPerMillion: 3.00,
+        outputCostPerMillion: 15.00,
     },
     'claude-opus-4-6': {
         provider: 'anthropic',
@@ -65,6 +67,8 @@ const FALLBACK_MODELS = {
         supportsReasoningEffort: false,
         costTier: 'expensive',
         reasoningCapability: 'high',
+        inputCostPerMillion: 15.00,
+        outputCostPerMillion: 75.00,
     },
 };
 
@@ -83,6 +87,8 @@ const ANTHROPIC_KNOWN_MODELS = {
         supportsReasoningEffort: false,
         costTier: 'medium',
         reasoningCapability: 'high',
+        inputCostPerMillion: 3.00,
+        outputCostPerMillion: 15.00,
         displayName: 'Claude Sonnet 4.6',
         _fromAPI: true,
     },
@@ -95,6 +101,8 @@ const ANTHROPIC_KNOWN_MODELS = {
         supportsReasoningEffort: false,
         costTier: 'expensive',
         reasoningCapability: 'high',
+        inputCostPerMillion: 15.00,
+        outputCostPerMillion: 75.00,
         displayName: 'Claude Opus 4.6',
         _fromAPI: true,
     },

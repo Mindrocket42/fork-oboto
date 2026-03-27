@@ -166,6 +166,9 @@ export interface Message {
       args: unknown;
       result?: unknown;
       status?: 'running' | 'completed';
+      /** Character offset in `content` when this tool call started.
+       *  Used to interleave tool calls with text in chronological order. */
+      contentOffset?: number;
   }>;
 
   // Token usage for this response (from the LLM provider)

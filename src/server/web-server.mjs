@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { consoleStyler } from '../ui/console-styler.mjs';
+import { localhostCors } from './cors-middleware.mjs';
 import { fetchRemoteModels } from '../core/model-registry.mjs';
 import { ChromeWsBridge } from './chrome-ws-bridge.mjs';
 import { WsDispatcher } from './ws-dispatcher.mjs';
@@ -92,6 +93,8 @@ export async function startServer(assistant, workingDir, eventBus, port = 3000, 
     }
 
     const app = express();
+    app.use(localhostCors());
+
     // Mutable reference holder so handlers can read/write the active AbortController
     const activeController = { controller: null };
 

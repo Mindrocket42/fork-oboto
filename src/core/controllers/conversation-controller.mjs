@@ -28,7 +28,8 @@ export class ConversationController {
         }
 
         const pluginsSummary = this.assistant._getPluginsSummary?.() || '';
-        const dynamicRoutesEnabled = process.env.OBOTO_DYNAMIC_ROUTES === 'true';
+        const dynamicRoutesEnabled = process.env.OBOTO_DYNAMIC_ROUTES !== 'false';
+        const contentServerPort = this.assistant?.workspaceContentServer?.getPort?.() || null;
         const systemPrompt = createSystemPrompt(
             this.assistant.workingDir,
             this.assistant.workspaceManager.getCurrentWorkspace(),
@@ -36,7 +37,7 @@ export class ConversationController {
             {
                 openclawAvailable, personaContent, skillsSummary,
                 includeSurfaces: true, includeStyling: true, includeWorkflows: true,
-                pluginsSummary, dynamicRoutesEnabled
+                pluginsSummary, dynamicRoutesEnabled, contentServerPort
             }
         );
 

@@ -538,7 +538,7 @@ async function handleSurfaceCallTool(data, ctx) {
             // Surfaces
             'list_surfaces',
             // Skills (full CRUD + execution)
-            'list_skills', 'read_skill', 'use_skill', 'create_skill', 'edit_skill', 'delete_skill', 'add_npm_skill',
+            'list_skills', 'read_skill', 'use_skill', 'create_skill', 'edit_skill', 'delete_skill', 'promote_skill', 'add_npm_skill',
             // Scheduling & recurring tasks
             'create_recurring_task', 'list_recurring_tasks', 'manage_recurring_task',
             // Background tasks

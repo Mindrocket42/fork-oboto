@@ -41,6 +41,7 @@ import { useHelp } from './hooks/useHelp';
 import { useTour } from './hooks/useTour';
 import { useHelpTracking } from './hooks/useHelpTracking';
 import { usePersona } from './hooks/usePersona';
+import { surfaceApi } from './components/features/surface/surfaceApi';
 
 import { useTabManager } from './hooks/useTabManager';
 import { useWorkspaceState } from './hooks/useWorkspaceState';
@@ -101,6 +102,14 @@ function App() {
 
   // New Refactored Hooks
   const ui = useUIState();
+
+  // Sync workspace content server port and sandbox mode into surfaceApi
+  useEffect(() => {
+    surfaceApi.setWorkspacePort(ui.workspacePort);
+  }, [ui.workspacePort]);
+  useEffect(() => {
+    surfaceApi.setSandboxMode(ui.sandboxMode);
+  }, [ui.sandboxMode]);
   
   const tabManager = useTabManager(
     surfaces, 

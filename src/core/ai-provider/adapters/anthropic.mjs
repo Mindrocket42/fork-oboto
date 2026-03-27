@@ -118,10 +118,17 @@ export async function callAnthropicRESTStream(ctx, requestBody, signal) {
             // Track active tool_use blocks by content_block index
             const activeToolBlocks = new Map();
             let toolCallIndex = 0;
+            let inputTokens = 0;
+            let outputTokens = 0;
 
             try {
                 for await (const event of sdkStream) {
                     if (signal?.aborted) break;
+
+                    // ── Message start (usage) ─────────────────────
+                    if (event.type === 'message_start' && event.message?.usage) {
+                        inputTokens = event.message.usage.input_tokens || 0;
+                    }
 
                     // ── Text deltas ─────────────────────────────────
                     if (event.type === 'content_block_delta' &&
@@ -187,8 +194,12 @@ export async function callAnthropicRESTStream(ctx, requestBody, signal) {
                     } else if (event.type === 'content_block_stop') {
                         activeToolBlocks.delete(event.index);
 
-                    // ── Message delta (stop reason) ─────────────────
-                    } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
+                    // ── Message delta (stop reason + usage) ──────────
+                    } else if (event.type === 'message_delta') {
+                        if (event.usage?.output_tokens) {
+                            outputTokens = event.usage.output_tokens;
+                        }
+                        if (!event.delta?.stop_reason) continue;
                         const finishReason = mapFinishReason(event.delta.stop_reason);
                         const chunk = JSON.stringify({
                             choices: [{
@@ -201,6 +212,18 @@ export async function callAnthropicRESTStream(ctx, requestBody, signal) {
 
                     // ── Message stop ────────────────────────────────
                     } else if (event.type === 'message_stop') {
+                        // Emit usage data before [DONE]
+                        if (inputTokens > 0 || outputTokens > 0) {
+                            const usageChunk = JSON.stringify({
+                                choices: [{ delta: {}, index: 0 }],
+                                usage: {
+                                    prompt_tokens: inputTokens,
+                                    completion_tokens: outputTokens,
+                                    total_tokens: inputTokens + outputTokens
+                                }
+                            });
+                            controller.enqueue(encoder.encode(`data: ${usageChunk}\n\n`));
+                        }
                         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                     }
                 }

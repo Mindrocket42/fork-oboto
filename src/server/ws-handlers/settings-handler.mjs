@@ -8,7 +8,7 @@ import { getProjectInfo, getDirectoryTree } from '../ws-helpers.mjs';
 import { readJsonFileSync } from '../../lib/json-file-utils.mjs';
 import { wsSend, wsSendError } from '../../lib/ws-utils.mjs';
 import { migrateWorkspaceConfig } from '../../lib/migrate-config-dirs.mjs';
-import { reinitPlugins } from './plugin-reinit.mjs';
+import { reinitPlugins, ensureUnifiedProvider } from './plugin-reinit.mjs';
 import { recordWorkspaceOpen } from '../../workspace/workspace-history.mjs';
 import { workspaceConfigDir } from '../../lib/paths.mjs';
 
@@ -310,6 +310,8 @@ async function handleUpdateSettings(data, ctx) {
                 // activate/deactivate lifecycle — no separate call needed)
                 await reinitPlugins(assistant, ctx, broadcast, actualPath);
 
+                await ensureUnifiedProvider(assistant);
+
                 // Send updated project info and file tree
                 const info = await getProjectInfo(actualPath);
                 wsSend(ws, 'status-update', info);
@@ -540,6 +542,8 @@ async function handleSetCwd(data, ctx) {
         // (ui-themes plugin handles workspace-switch via its own
         // activate/deactivate lifecycle — no separate call needed)
         await reinitPlugins(assistant, ctx, broadcast, actualPath);
+
+        await ensureUnifiedProvider(assistant);
 
         if (assistant.toolExecutor?.surfaceManager) {
             try {

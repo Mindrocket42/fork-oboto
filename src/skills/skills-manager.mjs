@@ -591,6 +591,68 @@ export class SkillsManager {
     }
 
     /**
+     * Promote a workspace skill to global visibility.
+     * @param {string} name - Skill name to promote
+     * @returns {Promise<string>} Success message
+     */
+    async promoteSkill(name) {
+        await this.ensureInitialized();
+        const skill = this.skills.get(name);
+
+        if (!skill) {
+            throw new Error(`Skill '${name}' not found`);
+        }
+
+        if (skill.source === 'global') {
+            throw new Error(`Skill '${name}' is already global`);
+        }
+
+        if (skill.source === 'npm') {
+            throw new Error(`Cannot promote npm skill '${name}'`);
+        }
+
+        const globalSkillDir = path.join(this.globalSkillsDir, name);
+
+        // Defense-in-depth: validate destination path
+        const resolvedGlobal = path.resolve(globalSkillDir);
+        if (!resolvedGlobal.startsWith(path.resolve(this.globalSkillsDir) + path.sep)) {
+            throw new Error(`Refusing to promote: target path escapes global skills directory`);
+        }
+
+        let skillDir;
+        let isSingleFile = false;
+
+        if (skill.path) {
+            skillDir = path.dirname(skill.path);
+            if (skillDir === this.workspaceSkillsDir && skill.path.endsWith('.md')) {
+                isSingleFile = true;
+                skillDir = skill.path;
+            }
+        } else {
+            skillDir = path.join(this.workspaceSkillsDir, name);
+        }
+
+        // Defense-in-depth: validate source path
+        const resolvedSource = path.resolve(skillDir);
+        const resolvedWsBase = path.resolve(this.workspaceSkillsDir);
+        if (!resolvedSource.startsWith(resolvedWsBase + path.sep) && resolvedSource !== resolvedWsBase) {
+            throw new Error(`Refusing to promote: source path escapes workspace skills directory`);
+        }
+
+        if (isSingleFile) {
+            await fs.mkdir(globalSkillDir, { recursive: true });
+            await fs.copyFile(skillDir, path.join(globalSkillDir, 'SKILL.md'));
+            await fs.unlink(skillDir);
+        } else {
+            await fs.cp(skillDir, globalSkillDir, { recursive: true });
+            await fs.rm(skillDir, { recursive: true, force: true });
+        }
+
+        await this.loadSkills();
+        return `Promoted skill '${name}' to global visibility`;
+    }
+
+    /**
      * Check if ClawHub CLI is available.
      * @returns {Promise<boolean>}
      */

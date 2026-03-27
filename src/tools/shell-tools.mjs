@@ -9,7 +9,7 @@ const BLOCKED_PATTERNS = [
     /\brm\s+-rf\s+[/~]/,   // rm -rf /  or rm -rf ~
     /\bsudo\b/,              // sudo
     /\b(mkfs|dd|fdisk)\b/,  // disk-destructive
-    />\s*\/dev\//,           // writing to devices
+    />\s*\/dev\/(?!null\b)/, // writing to devices (allow /dev/null)
 ];
 
 // Common command suggestions for recovery from failures
@@ -59,7 +59,7 @@ export class ShellTools {
         for (const pattern of this.denyList) {
             if (pattern.test(command)) {
                 return {
-                    output: `[error] exec: command blocked by security policy: ${command}`,
+                    output: `[error] exec: command blocked by security policy: ${command}. Blocked patterns include: sudo, rm -rf /, disk-destructive ops, writing to /dev/ (except /dev/null).`,
                     exitCode: 1,
                 };
             }
@@ -114,7 +114,7 @@ export class ShellTools {
             if (pattern.test(command)) {
                 const durationMs = Date.now() - startTime;
                 return `[error] run_command: command blocked by security policy: ${command}. ` +
-                    `Blocked patterns include: sudo, rm -rf /, disk-destructive ops, writing to /dev/.` +
+                    `Blocked patterns include: sudo, rm -rf /, disk-destructive ops, writing to /dev/ (except /dev/null).` +
                     formatFooter({ exitCode: 1, durationMs });
             }
         }

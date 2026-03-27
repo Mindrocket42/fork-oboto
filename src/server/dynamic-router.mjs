@@ -4,27 +4,48 @@ import { pathToFileURL } from 'url';
 import { consoleStyler } from '../ui/console-styler.mjs';
 
 /**
+ * Load .oboto.json workspace config from the workspace root.
+ * @param {string} workspaceRoot
+ * @returns {Promise<Object|null>}
+ */
+async function loadWorkspaceConfig(workspaceRoot) {
+    const configPath = path.join(workspaceRoot, '.oboto.json');
+    if (fs.existsSync(configPath)) {
+        try {
+            const content = await fs.promises.readFile(configPath, 'utf8');
+            return JSON.parse(content);
+        } catch (e) {
+            consoleStyler.log('warning', `Failed to load .oboto.json: ${e.message}`);
+        }
+    }
+    return null;
+}
+
+/**
  * Scans the workspace for JavaScript files exporting a 'route' function
  * and binds them to the Express app.
  *
- * Disabled by default for security. Set OBOTO_DYNAMIC_ROUTES=true to enable.
+ * **Disabled by default.** Opt in via OBOTO_DYNAMIC_ROUTES=true env var or
+ * `{ "dynamicRoutes": { "enabled": true } }` in .oboto.json.
  * Only scans routes/, .routes/, and api/ directories for security.
  *
  * **Security note:** Dynamic routes execute arbitrary JavaScript from the
  * workspace.  The workspace content server runs on a separate port without
  * auth sessions, but route code still has access to process.env and the
- * filesystem.  Enable explicitly when you trust the workspace content.
+ * filesystem.  Only enable for trusted workspaces.
  *
  * @param {import('express').Application} app
  * @param {string} workingDir
  */
 export async function mountDynamicRoutes(app, workingDir) {
     // Opt-in: dynamic route loading executes arbitrary JS from the workspace.
-    // The workspace content server runs on a separate port without auth sessions,
-    // but route code still has access to process.env and the filesystem.
     // Enable explicitly when you trust the workspace content.
-    if (process.env.OBOTO_DYNAMIC_ROUTES !== 'true') {
-        consoleStyler.log('system', 'Dynamic routes disabled (set OBOTO_DYNAMIC_ROUTES=true to enable)');
+    const wsConfig = await loadWorkspaceConfig(workingDir);
+    const envOptIn = process.env.OBOTO_DYNAMIC_ROUTES === 'true';
+    const configOptIn = wsConfig?.dynamicRoutes?.enabled === true;
+
+    if (!envOptIn && !configOptIn) {
+        consoleStyler.log('system', 'Dynamic routes disabled (opt-in via .oboto.json or OBOTO_DYNAMIC_ROUTES=true)');
         return;
     }
 
@@ -35,16 +56,27 @@ export async function mountDynamicRoutes(app, workingDir) {
     // Only scan designated route directories, NOT the workspace root
     // This prevents importing application files (ai.mjs, etc.)
     // which cause side-effect noise during startup
-    const ROUTE_DIRS = ['routes', '.routes', 'api'];
+    //
+    // Container directories (routes/, .routes/): the directory name is stripped
+    //   from the URL path. e.g. routes/api/klines.mjs → /api/klines
+    // Namespace directories (api/): the directory name IS part of the URL path.
+    //   e.g. api/users/index.mjs → /api/users
+    const CONTAINER_DIRS = ['routes', '.routes'];      // prefix stripped from route path
+    const NAMESPACE_DIRS = ['api'];                     // prefix kept in route path
+    const ROUTE_DIRS = [...CONTAINER_DIRS, ...NAMESPACE_DIRS];
     const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', 'ui', 'src', 'scripts', 'chrome-extension', 'tray-app', 'docs', 'plans', 'logs', 'puppeteer_data', 'skills']);
     
-    async function scan(dir, isRoot = false) {
+    async function scan(dir, routeDirRoot, isRoot = false) {
         try {
             const entries = await fs.promises.readdir(dir, { withFileTypes: true });
             
             for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
                 const relPath = path.relative(workingDir, fullPath);
+                // Compute route path relative to the route directory root
+                // e.g. for routes/api/klines.mjs scanned from routes/, the
+                // routeRelPath is "api/klines.mjs" → route path "/api/klines"
+                const routeRelPath = path.relative(routeDirRoot, fullPath);
                 
                 if (entry.isDirectory()) {
                     // Skip common ignore directories
@@ -53,13 +85,13 @@ export async function mountDynamicRoutes(app, workingDir) {
                     // Also skip hidden directories generally (except .well-known maybe?)
                     if (entry.name.startsWith('.') && entry.name !== '.well-known' && entry.name !== '.routes') continue;
                     
-                    await scan(fullPath, false);
+                    await scan(fullPath, routeDirRoot, false);
                 } else if (!isRoot && entry.isFile() && (entry.name.endsWith('.js') || entry.name.endsWith('.mjs'))) {
-                    // Determine route path
-                    // e.g. foo/bar.js -> /foo/bar
-                    // e.g. foo/index.js -> /foo
+                    // Determine route path relative to the route directory root
+                    // e.g. api/klines.mjs -> /api/klines
+                    // e.g. index.mjs -> /
                     
-                    let routePath = '/' + relPath.replace(/\\/g, '/').replace(/\.(m?js)$/, '');
+                    let routePath = '/' + routeRelPath.replace(/\\/g, '/').replace(/\.(m?js)$/, '');
                     
                     if (routePath.endsWith('/index')) {
                         routePath = routePath.slice(0, -6); // Remove /index
@@ -101,9 +133,17 @@ export async function mountDynamicRoutes(app, workingDir) {
     
     // First scan known route directories
     for (const routeDir of ROUTE_DIRS) {
-        const routePath = path.join(workingDir, routeDir);
-        if (fs.existsSync(routePath)) {
-            await scan(routePath, false);
+        const routeDirPath = path.join(workingDir, routeDir);
+        if (!fs.existsSync(routeDirPath)) continue;
+
+        if (CONTAINER_DIRS.includes(routeDir)) {
+            // Container: strip directory name from route path
+            // routes/api/klines.mjs → routeRelPath "api/klines.mjs" → /api/klines
+            await scan(routeDirPath, routeDirPath, false);
+        } else {
+            // Namespace: keep directory name in route path
+            // api/users.mjs → routeRelPath "api/users.mjs" → /api/users
+            await scan(routeDirPath, workingDir, false);
         }
     }
     

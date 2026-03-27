@@ -34,7 +34,9 @@ export class SafetyLayer {
 
     /**
      * Sliding window of recent tool call dedup keys.
-     * @type {Array<{ key: string, toolName: string }>}
+     * Each entry carries the iteration index so that batched same-turn
+     * calls can be collapsed when counting doom hits.
+     * @type {Array<{ key: string, toolName: string, iteration: number }>}
      */
     this._recentCalls = [];
 
@@ -43,6 +45,14 @@ export class SafetyLayer {
 
     /** @type {number} */
     this._threshold = 3;
+
+    /**
+     * Internal iteration counter used by {@link recordToolCall} which
+     * doesn't receive an explicit iteration parameter.  Incremented
+     * each time {@link checkDoom} is called.
+     * @type {number}
+     */
+    this._iterationCounter = 0;
 
     /** @type {Array<RegExp>} compiled doom patterns */
     this._doomPatterns = this._buildDoomPatterns(config);
@@ -109,6 +119,9 @@ export class SafetyLayer {
       return { doomed: false, reason: null, pattern: null };
     }
 
+    // Track the iteration for recordToolCall's internal counter
+    this._iterationCounter = iteration;
+
     const maxIterations = this._config.loop?.maxIterations ?? 25;
 
     // ── 1. Iteration ceiling ─────────────────────────────────────────
@@ -121,41 +134,53 @@ export class SafetyLayer {
     }
 
     // ── 2. Record latest tool calls & check consecutive duplicates ───
+    // All tool calls from this batch share the same iteration index so
+    // that N batched calls within a single turn count as 1 turn-hit for
+    // doom detection purposes.
     for (const tr of toolResults) {
       const key = this._makeKey(tr.toolName, tr.args);
-      this._recentCalls.push({ key, toolName: tr.toolName });
+      this._recentCalls.push({ key, toolName: tr.toolName, iteration });
       if (this._recentCalls.length > this._windowSize) {
         this._recentCalls.shift();
       }
     }
 
-    // Check for consecutive identical calls
+    // Check for consecutive identical calls — count *distinct iterations*
+    // sharing the same trailing dedup key, not individual entries.
+    // This prevents a batch of e.g. 6 curls (all different args) from
+    // triggering the consecutive-identical check, while still catching
+    // "same tool+args across 3 separate turns".
     if (this._recentCalls.length >= this._threshold) {
       const lastKey = this._recentCalls[this._recentCalls.length - 1]?.key;
-      let consecutive = 0;
+      const consecutiveIterations = new Set();
       for (let i = this._recentCalls.length - 1; i >= 0; i--) {
         if (this._recentCalls[i].key === lastKey) {
-          consecutive++;
+          consecutiveIterations.add(this._recentCalls[i].iteration);
         } else {
           break;
         }
       }
-      if (consecutive >= this._threshold) {
+      if (consecutiveIterations.size >= this._threshold) {
         return {
           doomed: true,
-          reason: `Tool "${this._recentCalls[this._recentCalls.length - 1].toolName}" called ${consecutive} times with identical arguments`,
+          reason: `Tool "${this._recentCalls[this._recentCalls.length - 1].toolName}" called across ${consecutiveIterations.size} iterations with identical arguments`,
           pattern: 'consecutive_identical',
         };
       }
     }
 
     // ── 3. Regex pattern matching against recent keys ────────────────
+    // Count *distinct iterations* matching the pattern, not individual
+    // entries.  This is the fix for the false positive: 6 `run_command`
+    // calls in a single batch now count as 1 iteration-hit, not 6.
     for (const re of this._doomPatterns) {
-      const matchCount = this._recentCalls.filter((c) => re.test(c.key)).length;
-      if (matchCount >= this._threshold) {
+      const matchingIterations = new Set(
+        this._recentCalls.filter((c) => re.test(c.key)).map((c) => c.iteration),
+      );
+      if (matchingIterations.size >= this._threshold) {
         return {
           doomed: true,
-          reason: `Doom pattern matched: ${re.source} (${matchCount} hits in window)`,
+          reason: `Doom pattern matched: ${re.source} (${matchingIterations.size} iterations in window)`,
           pattern: re.source,
         };
       }
@@ -183,28 +208,32 @@ export class SafetyLayer {
    *
    * @param {string} toolName
    * @param {Object} args
+   * @param {number} [iteration] — optional iteration index; falls back to
+   *   the internal counter tracked via {@link checkDoom} calls.
    * @returns {{ isDoom: boolean, tool?: string, count?: number }}
    */
-  recordToolCall(toolName, args) {
+  recordToolCall(toolName, args, iteration) {
+    const iter = iteration ?? this._iterationCounter;
     const key = this._makeKey(toolName, args);
-    this._recentCalls.push({ key, toolName });
+    this._recentCalls.push({ key, toolName, iteration: iter });
     if (this._recentCalls.length > this._windowSize) {
       this._recentCalls.shift();
     }
 
-    let consecutive = 0;
+    // Count distinct iterations with this key in consecutive tail
+    const consecutiveIterations = new Set();
     for (let i = this._recentCalls.length - 1; i >= 0; i--) {
       if (this._recentCalls[i].key === key) {
-        consecutive++;
+        consecutiveIterations.add(this._recentCalls[i].iteration);
       } else {
         break;
       }
     }
 
-    if (consecutive >= this._threshold) {
-      return { isDoom: true, tool: toolName, count: consecutive };
+    if (consecutiveIterations.size >= this._threshold) {
+      return { isDoom: true, tool: toolName, count: consecutiveIterations.size };
     }
-    return { isDoom: false, count: consecutive };
+    return { isDoom: false, count: consecutiveIterations.size };
   }
 
   /**
@@ -212,6 +241,7 @@ export class SafetyLayer {
    */
   reset() {
     this._recentCalls = [];
+    this._iterationCounter = 0;
   }
 
   // ════════════════════════════════════════════════════════════════════

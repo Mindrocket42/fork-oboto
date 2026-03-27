@@ -206,6 +206,12 @@ export const EventicAgentLoopPlugin = {
         // ── ACTOR_CRITIC_LOOP ──────────────────────────────────────────
         eventic.registerHandler("ACTOR_CRITIC_LOOP", async (ctx, payload, log, dispatch, engine) => {
             const { input, guidance, signal, stream, onChunk } = payload;
+
+            if (signal && signal.aborted) {
+                await gracefulCleanup(ctx, engine);
+                return { completed: true, response: '🛑 Task cancelled.' };
+            }
+
             ctx.turnNumber++;
 
             if (ctx.turnNumber > ctx.maxTurns) {

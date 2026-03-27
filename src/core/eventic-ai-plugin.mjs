@@ -176,6 +176,7 @@ export class EventicAIProvider {
             let toolCalls = null;
             let message = null;
             let finishReason = null;
+            let usage = null;
 
             if (wantsStream && (options.onToken || options.onChunk)) {
                 // ── Streaming path: delegate to _sendStreamingRequest ──
@@ -193,6 +194,7 @@ export class EventicAIProvider {
                 toolCalls = streamResult.toolCalls;
                 message = streamResult.rawMessage;
                 finishReason = streamResult.finishReason || null;
+                usage = streamResult.usage || null;
             } else {
                 const response = await callProvider(requestBody, { signal, model: effectiveModel });
                 const choice = response.choices?.[0];
@@ -200,6 +202,7 @@ export class EventicAIProvider {
                 content = message?.content || '';
                 toolCalls = message?.tool_calls;
                 finishReason = choice?.finish_reason || null;
+                usage = response.usage || null;
             }
 
             // ── Multi-message stitching: handle truncated responses ─────
@@ -257,7 +260,7 @@ export class EventicAIProvider {
 
             // If there are tool calls, we return them alongside the content
             if (toolCalls && toolCalls.length > 0) {
-                 return { content, toolCalls, rawMessage: message };
+                 return { content, toolCalls, rawMessage: message, usage };
             }
 
             // Parse JSON if requested
@@ -273,7 +276,11 @@ export class EventicAIProvider {
                     return { error: 'JSON parse failed', raw: content };
                 }
             }
-            
+
+            // Emit usage data so metrics tracking works without breaking the return type
+            if (usage && this.engine) {
+                this.engine.dispatch('AI_USAGE_METRICS', usage);
+            }
             return content;
         } catch (error) {
             cleanup();

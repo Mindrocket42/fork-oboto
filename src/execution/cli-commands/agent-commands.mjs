@@ -79,7 +79,8 @@ export function createAgentCommands(toolExecutor) {
                             '    skill read <name>             — read skill documentation\n' +
                             '    skill use <name> [args...]    — execute a skill\n' +
                             '    skill create <name> <desc>    — create a new skill\n' +
-                            '    skill delete <name>           — delete a skill',
+                            '    skill delete <name>           — delete a skill\n' +
+                            '    skill promote <name>          — promote a skill to global',
                         exitCode: 1,
                     };
                 }
@@ -120,9 +121,16 @@ export function createAgentCommands(toolExecutor) {
                         }
                         return await invokeHandler(toolExecutor, 'delete_skill', { name });
                     }
+                    case 'promote': {
+                        const name = subArgs[0];
+                        if (!name) {
+                            return { output: 'skill promote: usage: skill promote <name>', exitCode: 1 };
+                        }
+                        return await invokeHandler(toolExecutor, 'promote_skill', { name });
+                    }
                     default:
                         return {
-                            output: `[error] skill: unknown subcommand "${subcommand}". Available: list, read, use, create, delete`,
+                            output: `[error] skill: unknown subcommand "${subcommand}". Available: list, read, use, create, delete, promote`,
                             exitCode: 1,
                         };
                 }

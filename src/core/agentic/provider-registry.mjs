@@ -54,7 +54,7 @@ export class AgenticProviderRegistry {
     }
 
     /**
-     * Alias for get() — used by MahaProvider for deduplication.
+     * Alias for get().
      * @param {string} id
      * @returns {import('./base-provider.mjs').AgenticProvider|undefined}
      */

@@ -85,20 +85,34 @@ export class SurfaceManager {
         }
 
         // 5. Check for balanced braces/brackets (skip strings and template literals)
+        //
+        // NOTE: Uses trimmed[i-1] instead of a manually-tracked prevCh to avoid
+        // staleness bugs — `continue` statements in the loop would cause prevCh
+        // to go stale, preventing block comment end detection (`*/`) and string
+        // escape detection (`\'`) from working correctly.
         let braceCount = 0, parenCount = 0, bracketCount = 0;
         let inString = false, stringChar = '', inTemplate = false, inLineComment = false, inBlockComment = false;
-        let prevCh = '';
+        let templateDepth = 0; // track nested ${} inside template literals
         for (let i = 0; i < trimmed.length; i++) {
             const ch = trimmed[i];
+            const prev = i > 0 ? trimmed[i - 1] : '';
 
-            // Handle comments
+            // Count consecutive backslashes ending at i-1 to handle \\, \\\, etc.
+            // An odd number means the current char IS escaped; even means it's NOT.
+            let backslashCount = 0;
+            if (prev === '\\') {
+                for (let j = i - 1; j >= 0 && trimmed[j] === '\\'; j--) backslashCount++;
+            }
+            const isEscaped = (backslashCount % 2) === 1;
+
+            // Handle comments (not inside strings or template literals)
             if (!inString && !inTemplate) {
                 if (inLineComment) {
                     if (ch === '\n') inLineComment = false;
                     continue;
                 }
                 if (inBlockComment) {
-                    if (ch === '/' && prevCh === '*') inBlockComment = false;
+                    if (ch === '/' && prev === '*') inBlockComment = false;
                     continue;
                 }
                 if (ch === '/' && i + 1 < trimmed.length) {
@@ -107,10 +121,10 @@ export class SurfaceManager {
                 }
             }
 
-            // Handle strings
+            // Handle strings (not inside template literals or comments)
             if (!inTemplate && !inLineComment && !inBlockComment) {
                 if (inString) {
-                    if (ch === stringChar && prevCh !== '\\') inString = false;
+                    if (ch === stringChar && !isEscaped) inString = false;
                     continue;
                 }
                 if (ch === '"' || ch === "'") {
@@ -120,13 +134,43 @@ export class SurfaceManager {
                 }
             }
 
-            // Handle template literals
+            // Handle template literals (not inside strings or comments)
             if (!inString && !inLineComment && !inBlockComment) {
-                if (ch === '`' && prevCh !== '\\') {
-                    inTemplate = !inTemplate;
+                if (inTemplate) {
+                    // Track ${...} expressions inside templates.
+                    // Braces inside template expressions are tracked ONLY for
+                    // nesting depth — they do NOT affect the outer braceCount
+                    // since they are inherently balanced within the expression.
+                    if (ch === '`' && !isEscaped) {
+                        inTemplate = false;
+                        continue;
+                    }
+                    if (ch === '$' && i + 1 < trimmed.length && trimmed[i + 1] === '{') {
+                        // Start of template expression — skip the '{' too since
+                        // it's part of ${ syntax, not a code brace.
+                        templateDepth++;
+                        i++; // consume the '{'
+                        continue;
+                    }
+                    if (templateDepth > 0) {
+                        // Inside a template expression — track nested {} to know
+                        // when the expression ends.  Use templateDepth itself as
+                        // the nesting counter (it was already incremented for ${).
+                        // Do NOT modify the outer braceCount/parenCount/bracketCount.
+                        if (ch === '{') templateDepth++;
+                        else if (ch === '}') {
+                            templateDepth--;
+                            // when templateDepth reaches 0, this } closed the ${ expression
+                        }
+                        continue;
+                    }
+                    // Regular template content (not in an expression) — skip
                     continue;
                 }
-                if (inTemplate) continue;
+                if (ch === '`' && !isEscaped) {
+                    inTemplate = true;
+                    continue;
+                }
             }
 
             // Count brackets outside strings/comments/templates
@@ -138,8 +182,6 @@ export class SurfaceManager {
                 else if (ch === '[') bracketCount++;
                 else if (ch === ']') bracketCount--;
             }
-
-            prevCh = ch;
         }
 
         if (braceCount !== 0) {

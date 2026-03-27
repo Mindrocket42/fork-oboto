@@ -12,7 +12,7 @@ import path from 'path';
 import { consoleStyler } from '../../ui/console-styler.mjs';
 import { wsSend } from '../../lib/ws-utils.mjs';
 import { migrateWorkspaceConfig } from '../../lib/migrate-config-dirs.mjs';
-import { reinitPlugins } from './plugin-reinit.mjs';
+import { reinitPlugins, ensureUnifiedProvider } from './plugin-reinit.mjs';
 import {
     getHistory,
     recordWorkspaceOpen,
@@ -67,10 +67,15 @@ async function handleWorkspaceSwitch(data, ctx) {
         // activate/deactivate lifecycle — no separate call needed)
         await reinitPlugins(assistant, ctx, broadcast, resolved);
 
+        await ensureUnifiedProvider(assistant);
+
         if (workspaceContentServer) {
             try {
                 await workspaceContentServer.start(resolved);
-                broadcast('workspace:server-info', { port: workspaceContentServer.getPort() });
+                broadcast('workspace:server-info', {
+                    port: workspaceContentServer.getPort(),
+                    sandboxMode: workspaceContentServer.getSurfaceSandboxMode?.() || 'strict',
+                });
             } catch (e) {
                 consoleStyler.log('error', `Failed to restart workspace content server: ${e.message}`);
             }

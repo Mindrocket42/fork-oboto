@@ -129,5 +129,22 @@ export const SKILL_TOOLS = [
                 required: ["name"]
             }
         }
+    },
+    {
+        type: "function",
+        function: {
+            name: "promote_skill",
+            description: "Promote a workspace-specific skill to global visibility so it can be used across all workspaces.",
+            parameters: {
+                type: "object",
+                properties: {
+                    name: {
+                        type: "string",
+                        description: "Name of the skill to promote"
+                    }
+                },
+                required: ["name"]
+            }
+        }
     }
 ];

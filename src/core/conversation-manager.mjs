@@ -41,6 +41,9 @@ export class ConversationManager {
 
         /** @type {string} Path to the conversations directory */
         this._conversationsDir = path.join(this.workingDir, CONVERSATIONS_DIR);
+
+        /** @type {Map<string, Promise<void>>} Active save operations by conversation name */
+        this._saveLocks = new Map();
     }
 
     // ─── Lifecycle ────────────────────────────────────────────────────────
@@ -53,7 +56,7 @@ export class ConversationManager {
 
         // Always ensure the default conversation exists
         if (!this._conversations.has(DEFAULT_CONVERSATION)) {
-            const hm = this._createHistoryManager();
+            const hm = this._createHistoryManager(DEFAULT_CONVERSATION);
             this._conversations.set(DEFAULT_CONVERSATION, hm);
         }
 
@@ -134,7 +137,7 @@ export class ConversationManager {
             return { name: sanitized, created: false, error: `Conversation "${sanitized}" already exists.` };
         }
 
-        const hm = this._createHistoryManager();
+        const hm = this._createHistoryManager(sanitized);
         if (systemPrompt) {
             hm.initialize(systemPrompt);
         }
@@ -307,7 +310,7 @@ export class ConversationManager {
         let hm = this._conversations.get(this._activeConversation);
         if (!hm) {
             // Defensive: create if missing
-            hm = this._createHistoryManager();
+            hm = this._createHistoryManager(this._activeConversation);
             this._conversations.set(this._activeConversation, hm);
         }
         return hm;
@@ -418,12 +421,12 @@ export class ConversationManager {
 
             let hm = this._conversations.get(name);
             if (!hm) {
-                hm = this._createHistoryManager();
+                hm = this._createHistoryManager(name);
                 this._conversations.set(name, hm);
             }
 
             if (data.history && Array.isArray(data.history)) {
-                hm.setHistory(data.history);
+                hm.setHistory(data.history, true);
                 return true;
             }
         } catch (error) {
@@ -438,26 +441,42 @@ export class ConversationManager {
      * @param {string} name
      */
     async _saveToDisk(name) {
-        const hm = this._conversations.get(name);
-        if (!hm) return;
+        const currentLock = this._saveLocks.get(name) || Promise.resolve();
 
-        const history = hm.getHistory();
-        // Only save if there's meaningful content
-        if (history.length <= 0) return;
+        const savePromise = (async () => {
+            // Wait for any pending save for this conversation to complete
+            try { await currentLock; } catch { /* ignore previous errors */ }
 
-        await fs.promises.mkdir(this._conversationsDir, { recursive: true });
+            const hm = this._conversations.get(name);
+            if (!hm) return;
 
-        const filePath = path.join(this._conversationsDir, `${name}.json`);
-        const data = {
-            name,
-            timestamp: new Date().toISOString(),
-            history
-        };
+            const history = hm.getHistory();
+            // Only save if there's meaningful content
+            if (history.length <= 0) return;
 
+            await fs.promises.mkdir(this._conversationsDir, { recursive: true });
+
+            const filePath = path.join(this._conversationsDir, `${name}.json`);
+            const data = {
+                name,
+                timestamp: new Date().toISOString(),
+                history
+            };
+
+            try {
+                await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
+            } catch (error) {
+                consoleStyler.log('error', `Failed to save conversation "${name}": ${error.message}`);
+            }
+        })();
+
+        this._saveLocks.set(name, savePromise);
         try {
-            await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
-        } catch (error) {
-            consoleStyler.log('error', `Failed to save conversation "${name}": ${error.message}`);
+            await savePromise;
+        } finally {
+            if (this._saveLocks.get(name) === savePromise) {
+                this._saveLocks.delete(name);
+            }
         }
     }
 
@@ -478,7 +497,7 @@ export class ConversationManager {
             if (Array.isArray(history) && history.length > 0) {
                 const hm = this._conversations.get(DEFAULT_CONVERSATION);
                 if (hm) {
-                    hm.setHistory(history);
+                    hm.setHistory(history, true);
                     await this._saveToDisk(DEFAULT_CONVERSATION);
                     consoleStyler.log('system', `✓ Migrated legacy .conversation.json → .conversations/${DEFAULT_CONVERSATION}.json`);
                 }
@@ -498,10 +517,18 @@ export class ConversationManager {
 
     /**
      * Create a fresh HistoryManager with our configured limits.
+     * @param {string} name - The name of the conversation this manager belongs to
      * @returns {HistoryManager}
      */
-    _createHistoryManager() {
-        return new HistoryManager(this.maxTokens, this.contextWindowSize);
+    _createHistoryManager(name) {
+        const hm = new HistoryManager(this.maxTokens, this.contextWindowSize);
+        // Automatically save to disk when a new message is added to ensure we don't lose anything
+        hm.setOnChange(() => {
+            this._saveToDisk(name).catch(e => {
+                consoleStyler.log('error', `Autosave failed for conversation "${name}": ${e.message}`);
+            });
+        });
+        return hm;
     }
 
     /**

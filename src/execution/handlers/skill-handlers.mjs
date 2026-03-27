@@ -134,4 +134,20 @@ STEPS:
             return `[error] delete_skill: ${error.message}. Use: list_skills to verify skill exists.`;
         }
     }
+
+    async promoteSkill(args) {
+        const { name } = args;
+        if (!name) {
+            return "[error] promote_skill: 'name' is required. Usage: promote_skill({ name })";
+        }
+
+        try {
+            consoleStyler.log('system', `Promoting skill '${name}' to global scope…`);
+            const result = await this.skillsManager.promoteSkill(name);
+            return result;
+        } catch (error) {
+            consoleStyler.log('error', `Failed to promote skill: ${error.message}`);
+            return `[error] promote_skill: ${error.message}. Use: list_skills to verify skill exists and is workspace-scoped.`;
+        }
+    }
 }

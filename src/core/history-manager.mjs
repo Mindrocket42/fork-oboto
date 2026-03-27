@@ -26,6 +26,15 @@ export class HistoryManager {
         this.systemMessage = null;
         this._checkpoints = new Map();
         this._summarizer = null;
+        this._onChange = null;
+    }
+
+    /**
+     * Set a callback to fire when history changes (e.g. for autosave)
+     * @param {Function} callback
+     */
+    setOnChange(callback) {
+        this._onChange = callback;
     }
 
     /**
@@ -82,6 +91,10 @@ export class HistoryManager {
         
         // Check context limits and optimize if needed
         this.enforceContextLimits();
+        
+        if (this._onChange) {
+            this._onChange(this).catch?.(() => {}); // fire and forget
+        }
     }
 
     /**
@@ -97,6 +110,9 @@ export class HistoryManager {
         }
         this.history.push(message);
         this.enforceContextLimits();
+        if (this._onChange) {
+            this._onChange(this).catch?.(() => {});
+        }
     }
 
     /**
@@ -162,7 +178,7 @@ export class HistoryManager {
 
     /**
      * Update the system prompt
-     * @param {string} newContent 
+     * @param {string} newContent
      */
     updateSystemPrompt(newContent) {
         if (this.history.length > 0 && this.history[0].role === 'system') {
@@ -171,6 +187,9 @@ export class HistoryManager {
         } else {
             this.systemMessage = { role: 'system', content: newContent };
             this.history.unshift(this.systemMessage);
+        }
+        if (this._onChange) {
+            this._onChange(this).catch?.(() => {});
         }
     }
 
@@ -226,6 +245,10 @@ export class HistoryManager {
             }
         }
         
+        if (deletedExchanges > 0 && this._onChange) {
+            this._onChange(this).catch?.(() => {});
+        }
+        
         return deletedExchanges;
     }
 
@@ -238,17 +261,24 @@ export class HistoryManager {
         } else {
             this.history = [];
         }
+        if (this._onChange) {
+            this._onChange(this).catch?.(() => {});
+        }
     }
 
     /**
      * Set history to a specific set of messages (e.g. for retries)
-     * @param {Array<Object>} messages 
+     * @param {Array<Object>} messages
+     * @param {boolean} [skipOnChange=false] - Whether to skip firing the onChange callback
      */
-    setHistory(messages) {
+    setHistory(messages, skipOnChange = false) {
         this.history = [...messages];
         // Ensure system message is tracked
         if (this.history.length > 0 && this.history[0].role === 'system') {
             this.systemMessage = this.history[0];
+        }
+        if (!skipOnChange && this._onChange) {
+            this._onChange(this).catch?.(() => {});
         }
     }
 

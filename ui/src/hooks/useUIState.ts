@@ -26,6 +26,7 @@ export function useUIState() {
   const [showWizard, setShowWizard] = useState(false);
   const [showTaskSidebar, setShowTaskSidebar] = useState(false);
   const [workspacePort, setWorkspacePort] = useState<number | null>(null);
+  const [sandboxMode, setSandboxMode] = useState<'strict' | 'permissive'>('strict');
 
   // Layout visibility state (persisted via workspace state)
   const [showHeader, setShowHeader] = useState(true);
@@ -95,8 +96,11 @@ export function useUIState() {
 
     // Listen for workspace server info
     const unsubServer = wsService.on('workspace:server-info', (payload: unknown) => {
-      const p = payload as { port: number };
+      const p = payload as { port: number; sandboxMode?: 'strict' | 'permissive' };
       setWorkspacePort(p.port);
+      if (p.sandboxMode) {
+        setSandboxMode(p.sandboxMode);
+      }
     });
 
     return () => {
@@ -119,6 +123,7 @@ export function useUIState() {
     showWizard, setShowWizard,
     showTaskSidebar, setShowTaskSidebar,
     workspacePort,
+    sandboxMode,
     // Layout visibility
     showHeader, setShowHeader,
     showActivityBar, setShowActivityBar,

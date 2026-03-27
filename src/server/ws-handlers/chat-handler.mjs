@@ -264,7 +264,6 @@ async function handleInterrupt(data, ctx) {
     consoleStyler.log('system', '🛑 Received interrupt signal — shutting down current request');
     if (activeRef.controller) {
         activeRef.controller.abort();
-        activeRef.controller = null;
         consoleStyler.log('system', '🛑 AbortController fired — request pipeline will terminate');
     } else {
         consoleStyler.log('system', '🛑 No active request to interrupt');

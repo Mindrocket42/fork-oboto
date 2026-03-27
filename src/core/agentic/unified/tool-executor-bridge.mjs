@@ -247,14 +247,19 @@ export class ToolExecutorBridge {
     // ── Parse args if string ────────────────────────────────────────
     let parsedArgs = args;
     if (typeof args === 'string') {
-      try {
-        parsedArgs = JSON.parse(args);
-      } catch (e) {
-        this._stream.toolComplete(name, false);
-        return {
-          content: `Error: Malformed JSON in tool arguments — ${e.message}. Please retry with valid JSON.`,
-          success: false,
-        };
+      const trimmed = args.trim();
+      if (!trimmed) {
+        parsedArgs = {};
+      } else {
+        try {
+          parsedArgs = JSON.parse(trimmed);
+        } catch (e) {
+          this._stream.toolComplete(name, false);
+          return {
+            content: `Error: Malformed JSON in tool arguments — ${e.message}. Please retry with valid JSON.`,
+            success: false,
+          };
+        }
       }
     }
 
@@ -403,17 +408,22 @@ export class ToolExecutorBridge {
       // Parse arguments
       let args = toolCall.function.arguments;
       if (typeof args === 'string') {
-        try {
-          args = JSON.parse(args);
-        } catch (e) {
-          results.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            name: functionName,
-            content: `Error: Malformed JSON in tool arguments — ${e.message}. Please retry with valid JSON.`,
-          });
-          hasErrors = true;
-          continue;
+        const trimmed = args.trim();
+        if (!trimmed) {
+          args = {};
+        } else {
+          try {
+            args = JSON.parse(trimmed);
+          } catch (e) {
+            results.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: functionName,
+              content: `Error: Malformed JSON in tool arguments — ${e.message}. Please retry with valid JSON.`,
+            });
+            hasErrors = true;
+            continue;
+          }
         }
       }
 
@@ -502,9 +512,11 @@ export class ToolExecutorBridge {
       // Build mutation descriptor from tool arguments
       const mutation = {
         toolName,
-        surfaceId: args.surface_id || args.surfaceId,
-        componentName: args.component_name || args.componentName || args.name,
-        jsxSource: args.jsx_source || args.jsxSource || args.source || args.jsx,
+        surface_id: args.surface_id || args.surfaceId,
+        component_name: args.component_name || args.componentName || args.name,
+        jsx_source: args.jsx_source || args.jsxSource || args.source || args.jsx,
+        props: args.props,
+        order: args.order,
         args, // preserve full args for the underlying tool
       };
 

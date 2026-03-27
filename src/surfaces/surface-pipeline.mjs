@@ -18,6 +18,7 @@
 import { SurfaceManager } from './surface-manager.mjs';
 import { SurfaceMutationResult } from './surface-mutation-result.mjs';
 import { generateFixGuidance } from './fix-guidance-generator.mjs';
+import { getServerLog } from '../server/workspace-server-log.mjs';
 
 // ════════════════════════════════════════════════════════════════════════
 // Default configuration
@@ -103,6 +104,7 @@ export class SurfacePipeline {
     if (!validation.valid) {
       result.fail('validation', validation.errors, validation.warnings);
       this._recordFailure('validation', result);
+      this._attachServerLogs(result);
       return result;
     }
     if (validation.warnings.length > 0) {
@@ -167,6 +169,7 @@ export class SurfacePipeline {
     } catch (err) {
       result.fail('mutation', [`Write failed: ${err.message}`]);
       this._recordFailure('mutation', result);
+      this._attachServerLogs(result);
       return result;
     }
     result.passGate('mutation');
@@ -247,6 +250,7 @@ export class SurfacePipeline {
       );
 
       this._recordFailure('render', result);
+      this._attachServerLogs(result);
       return result;
     }
     result.passGate('render');
@@ -307,6 +311,7 @@ export class SurfacePipeline {
       } catch { /* non-fatal */ }
     }
 
+    this._attachServerLogs(result);
     return result;
   }
 
@@ -397,6 +402,25 @@ export class SurfacePipeline {
     const isErrorBoundary = false; // Placeholder — needs real implementation
 
     return { identical, isBlankScreen, isErrorBoundary };
+  }
+
+  /**
+   * Attach recent server logs to a mutation result for agent visibility.
+   *
+   * @private
+   * @param {SurfaceMutationResult} result
+   */
+  _attachServerLogs(result) {
+    if (result.success) return;
+    try {
+      const serverLog = getServerLog();
+      if (serverLog) {
+        const logs = serverLog.getRecentLogs(10);
+        if (logs.length > 0) {
+          result.setRecentServerLogs(logs);
+        }
+      }
+    } catch { /* non-fatal */ }
   }
 
   /**

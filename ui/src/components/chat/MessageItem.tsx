@@ -73,44 +73,151 @@ function getAttachmentIcon(filename: string) {
   return <File size={14} className="text-zinc-400" />;
 }
 
-/** Parse <tool_call> XML blocks from message content, returning extracted calls and cleaned text */
-interface ParsedToolCall {
-  name: string;
-  args: unknown;
-}
+/** A segment of message content, parsed for ordered (interleaved) rendering */
+type ContentSegment =
+  | { kind: 'text'; content: string }
+  | { kind: 'tool_call'; name: string; args: unknown }
+  | { kind: 'streaming_tool_call'; name: string; args: unknown; raw: string }
+  | { kind: 'structured_tool_call'; toolName: string; args: unknown; result?: unknown; status?: 'running' | 'completed' };
 
-function extractToolCalls(content: string): { toolCalls: ParsedToolCall[]; cleanContent: string } {
-  const toolCalls: ParsedToolCall[] = [];
-  // Match <tool_call> ... </tool_call> blocks (greedy-safe via lazy .*?)
-  const toolCallRegex = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
-  let cleanContent = content;
+/**
+ * Parse message content into an ordered sequence of text and tool-call segments.
+ * - Complete <tool_call>...</tool_call> blocks become 'tool_call' segments
+ * - An unclosed <tool_call> at the end (still streaming) becomes 'streaming_tool_call'
+ * - <tool_result>...</tool_result> blocks are stripped entirely
+ * - Everything else becomes 'text' segments
+ * - If `structuredToolCalls` is provided, they are merged into the segment array
+ *   at positions determined by their `contentOffset` so the final sequence is
+ *   chronologically ordered (text → tool → text → tool → text …).
+ * Segments are returned in the order they appear in the content so the UI can
+ * render them chronologically interleaved.
+ */
+function parseContentSegments(
+  content: string,
+  structuredToolCalls?: Array<{ toolName: string; args: unknown; result?: unknown; status?: 'running' | 'completed'; contentOffset?: number }>,
+): ContentSegment[] {
+  // Strip <tool_result>...</tool_result> blocks (echoed by the AI model; the
+  // structured ToolCall component already displays tool results).
+  const stripped = content.replace(/<tool_result>\s*[\s\S]*?\s*<\/tool_result>/g, '');
+
+  const segments: ContentSegment[] = [];
+  const completeRegex = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
+  let lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = toolCallRegex.exec(content)) !== null) {
+  while ((match = completeRegex.exec(stripped)) !== null) {
+    // Text before this tool call
+    if (match.index > lastIndex) {
+      const textBefore = stripped.slice(lastIndex, match.index).trim();
+      if (textBefore) segments.push({ kind: 'text', content: textBefore });
+    }
+    // Parse the tool call JSON
     const raw = match[1].trim();
     try {
       const parsed = JSON.parse(raw);
-      toolCalls.push({
+      segments.push({
+        kind: 'tool_call',
         name: parsed.name || 'unknown',
         args: parsed.arguments ?? parsed.args ?? {},
       });
     } catch {
-      // Not valid JSON — try as-is so we still show something
-      toolCalls.push({ name: 'unknown', args: { raw } });
+      segments.push({ kind: 'tool_call', name: 'unknown', args: { raw } });
     }
+    lastIndex = match.index + match[0].length;
   }
 
-  if (toolCalls.length > 0) {
-    cleanContent = content.replace(toolCallRegex, '').trim();
+  // Remaining content after last complete tool call
+  const remaining = stripped.slice(lastIndex);
+
+  // Check for an unclosed <tool_call> (still being streamed)
+  const streamIdx = remaining.indexOf('<tool_call>');
+  if (streamIdx !== -1) {
+    const textBefore = remaining.slice(0, streamIdx).trim();
+    if (textBefore) segments.push({ kind: 'text', content: textBefore });
+
+    const partialBody = remaining.slice(streamIdx + '<tool_call>'.length).trim();
+    let name = 'unknown';
+    let args: unknown = {};
+    if (partialBody) {
+      try {
+        const parsed = JSON.parse(partialBody);
+        name = parsed.name || 'unknown';
+        args = parsed.arguments ?? parsed.args ?? {};
+      } catch {
+        // Partial JSON — extract what we can via regex
+        const nm = partialBody.match(/"name"\s*:\s*"([^"]+)"/);
+        if (nm) name = nm[1];
+        const am = partialBody.match(/"arguments"\s*:\s*(\{[\s\S]*)/) ??
+                   partialBody.match(/"args"\s*:\s*(\{[\s\S]*)/);
+        if (am) {
+          try { args = JSON.parse(am[1]); } catch { args = { _streaming: true, raw: am[1] }; }
+        }
+      }
+    }
+    segments.push({ kind: 'streaming_tool_call', name, args, raw: partialBody });
+  } else {
+    const trimmed = remaining.trim();
+    if (trimmed) segments.push({ kind: 'text', content: trimmed });
   }
 
-  // Strip <tool_result>...</tool_result> blocks that the AI model sometimes echoes
-  // back in its text response.  These contain raw tool output (e.g. full JSX source
-  // code) and should never be rendered as visible message text — the structured
-  // ToolCall component already displays tool results.
-  cleanContent = cleanContent.replace(/<tool_result>\s*[\s\S]*?\s*<\/tool_result>/g, '').trim();
+  // ── Merge structured tool calls at their chronological positions ──
+  // Structured tool calls arrive via WebSocket events with a `contentOffset`
+  // indicating how many characters of content had been streamed at the time
+  // the tool call started.  We insert them into the segment array so the
+  // final sequence is chronologically ordered.
+  if (structuredToolCalls && structuredToolCalls.length > 0) {
+    // Build a flat array of { charOffset, segment } from the parsed segments
+    type PositionedSegment = { charOffset: number; segment: ContentSegment };
+    const positioned: PositionedSegment[] = [];
+    let cursor = 0;
+    for (const seg of segments) {
+      positioned.push({ charOffset: cursor, segment: seg });
+      if (seg.kind === 'text') cursor += seg.content.length;
+    }
 
-  return { toolCalls, cleanContent };
+    // Insert each structured tool call at the position closest to its
+    // contentOffset, but after any text segment that starts before it.
+    for (const tc of structuredToolCalls) {
+      const offset = tc.contentOffset ?? 0;
+      const stcSeg: ContentSegment = {
+        kind: 'structured_tool_call',
+        toolName: tc.toolName,
+        args: tc.args,
+        result: tc.result,
+        status: tc.status,
+      };
+      // Find the insertion index: after the last segment whose charOffset <= offset
+      let insertIdx = positioned.length;
+      for (let i = positioned.length - 1; i >= 0; i--) {
+        if (positioned[i].charOffset <= offset) {
+          // If this is a text segment that extends past the offset, split it
+          const seg = positioned[i].segment;
+          if (seg.kind === 'text' && positioned[i].charOffset + seg.content.length > offset) {
+            const splitAt = offset - positioned[i].charOffset;
+            const before = seg.content.substring(0, splitAt).trim();
+            const after = seg.content.substring(splitAt).trim();
+            // Replace the text segment with split halves
+            positioned.splice(i, 1,
+              ...(before ? [{ charOffset: positioned[i].charOffset, segment: { kind: 'text' as const, content: before } }] : []),
+              { charOffset: offset, segment: stcSeg },
+              ...(after ? [{ charOffset: offset, segment: { kind: 'text' as const, content: after } }] : []),
+            );
+            insertIdx = -1; // already inserted
+          } else {
+            insertIdx = i + 1;
+          }
+          break;
+        }
+      }
+      if (insertIdx >= 0) {
+        positioned.splice(insertIdx, 0, { charOffset: offset, segment: stcSeg });
+      }
+    }
+
+    return positioned.map(p => p.segment);
+  }
+
+  return segments;
 }
 
 /** Parse user message content and render [attached: filename] tags as styled chips */
@@ -267,72 +374,119 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, actions, userLabel =
               renderUserContentWithAttachments(message.content || '')
             ) : (
               <div className="space-y-4">
-                {/* Render tool calls FIRST (above text content) */}
-                {message.toolCalls && message.toolCalls.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-2">
-                      <Terminal size={10} /> Tool Calls
-                    </div>
-                    {message.toolCalls.map((tc, idx) => (
-                      <ToolCall
-                        key={idx}
-                        toolName={tc.toolName}
-                        args={tc.args}
-                        result={tc.result}
-                      />
-                    ))}
-                  </div>
-                )}
-                
-                {/* Pending indicator while waiting for response text (non-streaming) */}
-                {message._pending && !message._streaming && (!message.content || message.content.trim() === '') && (
+                {/* Pending indicator while waiting for response text (non-streaming, no tool calls yet) */}
+                {message._pending && !message._streaming
+                  && (!message.content || message.content.trim() === '')
+                  && (!message.toolCalls || message.toolCalls.length === 0) && (
                   <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/30">
                     <Loader2 size={14} className="animate-spin text-indigo-400" />
                     <span className="text-[12px] text-zinc-500">Working...</span>
                   </div>
                 )}
 
-                {/* Streaming cursor when content hasn't arrived yet */}
-                {message._streaming && (!message.content || message.content.trim() === '') && (
+                {/* Streaming cursor when content hasn't arrived yet and no tool calls */}
+                {message._streaming
+                  && (!message.content || message.content.trim() === '')
+                  && (!message.toolCalls || message.toolCalls.length === 0) && (
                   <div className="flex items-center gap-2 pt-1">
                     <span className="inline-block w-2 h-4 bg-indigo-400 rounded-sm animate-pulse" />
                   </div>
                 )}
 
-                {/* Then render the text content (with inline <tool_call> tags extracted) */}
-                {message.content && message.content.trim() !== '' && (() => {
-                  const { toolCalls: inlineToolCalls, cleanContent } = extractToolCalls(message.content);
-                  const hasExistingToolCalls = (message.toolCalls && message.toolCalls.length > 0) || inlineToolCalls.length > 0;
+                {/* All content rendered as chronologically interleaved segments:
+                    text, inline <tool_call> tags, AND structured tool calls merged by contentOffset */}
+                {(() => {
+                  const hasContent = message.content && message.content.trim() !== '';
+                  const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
+                  if (!hasContent && !hasToolCalls) return null;
+
+                  const segments = parseContentSegments(
+                    message.content || '',
+                    message.toolCalls,
+                  );
+                  if (segments.length === 0 && !hasToolCalls) return null;
+
+                  const hasAnyToolCall = segments.some(s => s.kind !== 'text');
+                  let shownToolLabel = false;
                   return (
                     <>
-                      {/* Render inline tool calls extracted from content text */}
-                      {inlineToolCalls.length > 0 && (
-                        <div className="space-y-2">
-                          {!(message.toolCalls && message.toolCalls.length > 0) && (
-                            <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-2">
-                              <Terminal size={10} /> Tool Calls
+                      {segments.map((seg, idx) => {
+                        if (seg.kind === 'tool_call') {
+                          const showLabel = !shownToolLabel;
+                          shownToolLabel = true;
+                          return (
+                            <div key={`seg-${idx}`} className="space-y-2">
+                              {showLabel && (
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-2">
+                                  <Terminal size={10} /> Tool Calls
+                                </div>
+                              )}
+                              <ToolCall toolName={seg.name} args={seg.args} />
                             </div>
-                          )}
-                          {inlineToolCalls.map((tc, idx) => (
-                            <ToolCall
-                              key={`inline-tc-${idx}`}
-                              toolName={tc.name}
-                              args={tc.args}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      {cleanContent && cleanContent.trim() !== '' && (
-                        <>
-                          {hasExistingToolCalls && (
-                            <div className="border-t border-zinc-800/30" />
-                          )}
-                          <MarkdownRenderer content={cleanContent} />
-                        </>
-                      )}
+                          );
+                        }
+                        if (seg.kind === 'streaming_tool_call') {
+                          const showLabel = !shownToolLabel;
+                          shownToolLabel = true;
+                          return (
+                            <div key={`seg-${idx}`} className="space-y-2">
+                              {showLabel && (
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-2">
+                                  <Terminal size={10} /> Tool Calls
+                                </div>
+                              )}
+                              <div className="relative">
+                                <ToolCall toolName={seg.name} args={seg.args} />
+                                <div className="absolute top-2 right-2">
+                                  <Loader2 size={12} className="animate-spin text-indigo-400" />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        if (seg.kind === 'structured_tool_call') {
+                          const showLabel = !shownToolLabel;
+                          shownToolLabel = true;
+                          return (
+                            <div key={`seg-${idx}`} className="space-y-2">
+                              {showLabel && (
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-2">
+                                  <Terminal size={10} /> Tool Calls
+                                </div>
+                              )}
+                              <div className="relative">
+                                <ToolCall toolName={seg.toolName} args={seg.args} result={seg.result} />
+                                {seg.status === 'running' && (
+                                  <div className="absolute top-2 right-2">
+                                    <Loader2 size={12} className="animate-spin text-indigo-400" />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        }
+                        // text segment
+                        return (
+                          <React.Fragment key={`seg-${idx}`}>
+                            {hasAnyToolCall && idx > 0 && segments[idx - 1]?.kind !== 'text' && (
+                              <div className="border-t border-zinc-800/30" />
+                            )}
+                            <MarkdownRenderer content={seg.content} />
+                          </React.Fragment>
+                        );
+                      })}
                       {/* Streaming cursor — shown while LLM tokens are arriving */}
                       {message._streaming && (
                         <span className="inline-block w-2 h-4 ml-0.5 bg-indigo-400 rounded-sm animate-pulse align-middle" />
+                      )}
+                      {/* Pending indicator when tool calls are present but no content yet */}
+                      {message._pending && !message._streaming
+                        && (!message.content || message.content.trim() === '')
+                        && hasToolCalls && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/30">
+                          <Loader2 size={14} className="animate-spin text-indigo-400" />
+                          <span className="text-[12px] text-zinc-500">Working...</span>
+                        </div>
                       )}
                     </>
                   );

@@ -27,8 +27,10 @@ import {
   PROCEED_SENTINEL,
   PRECHECK_PROMPT,
   purgeTransientMessages,
+  patchOrphanedToolCalls,
 } from '../../agent-loop-helpers.mjs';
 import { isCancellationError } from '../../ai-provider.mjs';
+import { getModelInfo } from '../../model-registry.mjs';
 
 // ════════════════════════════════════════════════════════════════════════
 // AgentLoop Class
@@ -144,6 +146,8 @@ export class AgentLoop {
     let precheckUsed = false;
     let doomDetected = false;
     const toolsUsedNames = [];
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
 
     // ── Surface pipeline escalation tracking ────────────────────────
     const MAX_SURFACE_RETRIES = 3;
@@ -204,6 +208,7 @@ export class AgentLoop {
     const precheckEnabled = this._config.precheck?.enabled !== false;
     const shouldPrecheck =
       precheckEnabled &&
+      !this._learning.shouldSkipPrecheck(input, history) &&
       !intent.isSurfaceUpdate &&
       !intent.isFollowUp &&
       (intent.type === 'direct' || intent.type === 'question');
@@ -430,6 +435,16 @@ export class AgentLoop {
           model,
         });
         llmCallCount++;
+
+        // Extract usage from the response and update turn metrics
+        const usage = response?.usage || null;
+        if (usage) {
+          const promptTok = usage.prompt_tokens || 0;
+          const completionTok = usage.completion_tokens || 0;
+          totalPromptTokens += promptTok;
+          totalCompletionTokens += completionTok;
+          this._stream?.addTokens(promptTok + completionTok);
+        }
       } catch (err) {
         if (isCancellationError(err) || this._isAborted(signal)) {
           return this._cancelledResult();
@@ -614,6 +629,9 @@ export class AgentLoop {
       }
 
       // ── Empty response (no tool calls, no content) ───────────────
+      if (this._isAborted(signal)) {
+        return this._cancelledResult();
+      }
       emptyIterations++;
       this._stream.commentary(
         '🔄',
@@ -672,8 +690,28 @@ export class AgentLoop {
     this._cognitive.tick(this._config.cognitive?.physicsTickCount || 3);
 
     // ════════════════════════════════════════════════════════════════
-    // PHASE 12: LEARNING RECORD
+    // PHASE 12: COST COMPUTATION & LEARNING RECORD
     // ════════════════════════════════════════════════════════════════
+
+    // Compute per-turn cost from token counts and model pricing
+    let turnCost = 0;
+    if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
+      const modelInfo = model ? getModelInfo(model) : null;
+      const inputRate = modelInfo?.inputCostPerMillion ?? 3.0;    // default to sonnet pricing
+      const outputRate = modelInfo?.outputCostPerMillion ?? 15.0;
+      turnCost =
+        (totalPromptTokens / 1_000_000) * inputRate +
+        (totalCompletionTokens / 1_000_000) * outputRate;
+    }
+
+    const turnTokenUsage = (totalPromptTokens > 0 || totalCompletionTokens > 0)
+      ? {
+          promptTokens: totalPromptTokens,
+          completionTokens: totalCompletionTokens,
+          totalTokens: totalPromptTokens + totalCompletionTokens,
+          totalCost: turnCost,
+        }
+      : null;
 
     this._learning.recordTurnOutcome({
       input,
@@ -685,6 +723,7 @@ export class AgentLoop {
       continuations: incompleteRetryCount,
       doomDetected,
       precheckUsed,
+      tokenUsage: turnTokenUsage,
     });
 
     // ════════════════════════════════════════════════════════════════
@@ -693,9 +732,9 @@ export class AgentLoop {
 
     const metrics = this._stream.metrics;
     this._stream.costUpdate(
-      metrics.cost || 0,
+      turnCost,
       this._learning.totalCost || 0,
-      metrics.tokens || 0,
+      0,  // tokens already accumulated in _turnMetrics during LLM calls
     );
 
     // ── Append __directMarkdown blocks ─────────────────────────────
@@ -724,7 +763,7 @@ export class AgentLoop {
         learningSuggestion,
         duration: Date.now() - startTime,
       },
-      tokenUsage: null,
+      tokenUsage: turnTokenUsage,
     };
 
     } finally {
@@ -735,6 +774,15 @@ export class AgentLoop {
       // leaking into subsequent turns.
       if (this._ai) {
         purgeTransientMessages({ ai: this._ai });
+        // ── Patch orphaned tool_calls ──────────────────────────────
+        // When the turn is interrupted mid-tool-execution (user cancel),
+        // the assistant message with tool_calls is already in history
+        // (pushed by ask()) but the tool results were never added.
+        // Inject synthetic error results so subsequent API calls don't
+        // fail with "tool_use ids found without tool_result blocks".
+        if (this._ai.conversationHistory) {
+          patchOrphanedToolCalls(this._ai.conversationHistory);
+        }
       }
     }
   }

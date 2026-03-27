@@ -130,7 +130,10 @@ export class ClientConnectionHandler {
             try {
                 safeSend(ws, {
                     type: 'workspace:server-info',
-                    payload: { port: workspaceContentServer.getPort() }
+                    payload: {
+                        port: workspaceContentServer.getPort(),
+                        sandboxMode: workspaceContentServer.getSurfaceSandboxMode?.() || 'strict',
+                    }
                 });
             } catch (e) {
                 // Ignore

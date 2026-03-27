@@ -139,7 +139,11 @@ export const UNIFIED_CONFIG = {
       /^read_file::/,
       /^list_files::/,
       /^search_files::/,
-      /^run_command::/,
+      // NOTE: run_command is intentionally excluded.  The pattern `/^run_command::/`
+      // matches ANY run_command regardless of arguments, so using 3 different
+      // commands across 3 iterations (e.g. curl, cat, ls) false-triggers doom.
+      // The consecutive-identical check (which requires the same tool+args)
+      // already catches actual `run_command` doom loops.
     ],
   },
 

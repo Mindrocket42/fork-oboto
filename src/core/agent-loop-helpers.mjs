@@ -105,6 +105,72 @@ export function purgeTransientMessages(engine) {
     }
 }
 
+/**
+ * Patch orphaned tool_calls in conversation history.
+ *
+ * When a request is interrupted mid-tool-execution, the assistant message
+ * (containing tool_calls) is already in history (pushed by ask()) but the
+ * corresponding tool-role result messages were never added.  This causes
+ * Anthropic's API to reject every subsequent request with HTTP 400:
+ *   "tool_use ids were found without tool_result blocks immediately after"
+ *
+ * This function scans the conversation history for assistant messages with
+ * tool_calls and verifies that each tool_call id has a matching tool-role
+ * message immediately after.  For any unmatched ids, a synthetic tool-role
+ * result is injected so the history remains valid.
+ *
+ * Safe to call on every exit path — it's a no-op when there are no orphans.
+ *
+ * NOTE: This handles OpenAI-format history. There is a secondary/fallback implementation
+ * for Anthropic-format messages in translateMessages() in anthropic-shared.mjs. Keep them in sync.
+ *
+ * @param {Array<Object>} history — the conversationHistory array (mutated in place)
+ */
+export function patchOrphanedToolCalls(history) {
+    if (!Array.isArray(history) || history.length === 0) return;
+
+    // Walk backwards so splicing doesn't shift indices we haven't visited yet
+    for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i];
+        if (msg.role !== 'assistant' || !msg.tool_calls || msg.tool_calls.length === 0) continue;
+
+        // Collect all tool_call ids from this assistant message
+        const expectedIds = new Set();
+        for (const tc of msg.tool_calls) {
+            if (tc.id) expectedIds.add(tc.id);
+        }
+        if (expectedIds.size === 0) continue;
+
+        // Collect tool-role result ids that follow this assistant message
+        // (they should be the immediately following messages with role === 'tool')
+        let j = i + 1;
+        while (j < history.length && history[j].role === 'tool') {
+            const resultId = history[j].tool_call_id;
+            if (resultId) expectedIds.delete(resultId);
+            j++;
+        }
+
+        // Any remaining ids in expectedIds are orphaned — inject synthetic results
+        if (expectedIds.size > 0) {
+            const syntheticResults = [];
+            for (const orphanId of expectedIds) {
+                // Find the tool name from the original tool_call
+                const tc = msg.tool_calls.find(t => t.id === orphanId);
+                const toolName = tc?.function?.name || 'unknown';
+                syntheticResults.push({
+                    role: 'tool',
+                    tool_call_id: orphanId,
+                    name: toolName,
+                    content: 'Error: Tool execution was interrupted by user cancellation.',
+                });
+            }
+            // Insert synthetic results right after the last existing tool result
+            // (or right after the assistant message if none exist)
+            history.splice(j, 0, ...syntheticResults);
+        }
+    }
+}
+
 export function setupErrorListener(ctx) {
     if (ctx.eventBus && !ctx.errorListener) {
         ctx.pendingErrors = [];
@@ -131,10 +197,20 @@ export function cleanupErrorListener(ctx) {
  * Gracefully clean up error listeners and persist state on early exit
  * (cancellation, fatal error, etc.).
  * Wrapped in try/catch so cleanup failures never mask the original error.
+ *
+ * Also patches orphaned tool_calls in conversation history — when a request
+ * is interrupted mid-tool-execution, the assistant message (with tool_calls)
+ * may already be in history but the corresponding tool results were never
+ * added.  Injecting synthetic error results prevents Anthropic API 400
+ * errors on all subsequent requests.
  */
 export async function gracefulCleanup(ctx, engine) {
     cleanupErrorListener(ctx);
     purgeTransientMessages(engine);
+    // Patch orphaned tool_calls AFTER purging transients so the history is clean
+    if (engine?.ai?.conversationHistory) {
+        patchOrphanedToolCalls(engine.ai.conversationHistory);
+    }
     if (ctx.stateManager) {
         try {
             await ctx.stateManager.syncHistory(engine);

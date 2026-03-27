@@ -329,19 +329,26 @@ export const useChat = () => {
          const p = payload as { toolName: string; args: unknown };
          setIsWorking(true);
          setMessages(prev => {
-             const newToolCall = {
-                 toolName: p.toolName,
-                 args: p.args,
-                 result: undefined,
-                 status: 'running' as const,
-             };
-             
              // Check if there's already a pending or streaming AI message to add to.
              // A _streaming message is one that already has stream chunks; tool calls
              // during a multi-turn agent loop should attach to the same message.
              const targetIdx = prev.findIndex(m =>
                  m.role === 'ai' && (m._pending === true || m._streaming === true)
              );
+
+             // Capture the current content length so we know where in the text
+             // this tool call appeared chronologically.
+             const currentContentLength = targetIdx !== -1
+                 ? (prev[targetIdx].content || '').length
+                 : 0;
+
+             const newToolCall = {
+                 toolName: p.toolName,
+                 args: p.args,
+                 result: undefined,
+                 status: 'running' as const,
+                 contentOffset: currentContentLength,
+             };
              
              if (targetIdx !== -1) {
                  // Add tool call to existing pending/streaming response

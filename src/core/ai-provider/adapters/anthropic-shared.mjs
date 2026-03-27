@@ -214,6 +214,113 @@ export function translateMessages(openaiMessages) {
         }
     }
 
+    // NOTE: This handles Anthropic-format messages. There is a primary implementation
+    // for OpenAI-format history in patchOrphanedToolCalls() in agent-loop-helpers.mjs. Keep them in sync.
+    // ── Strip orphaned tool_use blocks ──────────────────────────────
+    // Anthropic requires every tool_use block in an assistant message
+    // to be immediately followed by a user message containing a matching
+    // tool_result block.  When a request is interrupted mid-tool-execution,
+    // the assistant message (with tool_use) is already in history but the
+    // tool_result was never added.  This causes HTTP 400 errors on every
+    // subsequent request.
+    //
+    // Strategy: walk the merged array and for each assistant message that
+    // contains tool_use blocks, verify the next message contains matching
+    // tool_result blocks.  For any unmatched tool_use ids, inject synthetic
+    // tool_result blocks with an error message.
+    for (let i = 0; i < merged.length; i++) {
+        if (merged[i].role !== 'assistant') continue;
+        const blocks = _toContentArray(merged[i].content);
+        const toolUseIds = blocks
+            .filter(b => b.type === 'tool_use' && b.id)
+            .map(b => b.id);
+        if (toolUseIds.length === 0) continue;
+
+        // Collect tool_result ids from the immediately following user message
+        const next = merged[i + 1];
+        const nextBlocks = (next && next.role === 'user')
+            ? _toContentArray(next.content)
+            : [];
+        const resultIds = new Set(
+            nextBlocks
+                .filter(b => b.type === 'tool_result' && b.tool_use_id)
+                .map(b => b.tool_use_id)
+        );
+
+        // Find orphaned tool_use ids (present in assistant but no matching result)
+        const orphanedIds = toolUseIds.filter(id => !resultIds.has(id));
+        if (orphanedIds.length === 0) continue;
+
+        // Build synthetic tool_result blocks for each orphan
+        const syntheticResults = orphanedIds.map(id => ({
+            type: 'tool_result',
+            tool_use_id: id,
+            content: 'Error: Tool execution was interrupted by user cancellation.',
+        }));
+
+        if (next && next.role === 'user') {
+            // Append synthetic results to the existing user message
+            const existingBlocks = _toContentArray(next.content);
+            next.content = [...existingBlocks, ...syntheticResults];
+        } else {
+            // Insert a new user message with the synthetic results
+            merged.splice(i + 1, 0, {
+                role: 'user',
+                content: syntheticResults,
+            });
+        }
+    }
+
+    // ── Strip orphaned tool_result blocks ──────────────────────────────
+    // The inverse case: a user message contains tool_result blocks whose
+    // tool_use_id has no matching tool_use in the preceding assistant
+    // message.  This happens when context compaction or purging removes
+    // an assistant message but leaves the user message with tool_result
+    // blocks intact.  Anthropic rejects these with HTTP 400:
+    //   "unexpected tool_use_id found in tool_result blocks"
+    //
+    // Strategy: for each user message, collect tool_result ids and verify
+    // they exist in the preceding assistant message's tool_use blocks.
+    // Remove any tool_result blocks with unmatched ids.
+    for (let i = 0; i < merged.length; i++) {
+        if (merged[i].role !== 'user') continue;
+        const blocks = _toContentArray(merged[i].content);
+        const toolResultIds = blocks
+            .filter(b => b.type === 'tool_result' && b.tool_use_id)
+            .map(b => b.tool_use_id);
+        if (toolResultIds.length === 0) continue;
+
+        // Collect tool_use ids from the preceding assistant message
+        const prev = i > 0 ? merged[i - 1] : null;
+        const prevBlocks = (prev && prev.role === 'assistant')
+            ? _toContentArray(prev.content)
+            : [];
+        const toolUseIds = new Set(
+            prevBlocks
+                .filter(b => b.type === 'tool_use' && b.id)
+                .map(b => b.id)
+        );
+
+        // Find orphaned tool_result ids
+        const orphanedResultIds = new Set(
+            toolResultIds.filter(id => !toolUseIds.has(id))
+        );
+        if (orphanedResultIds.size === 0) continue;
+
+        // Strip orphaned tool_result blocks from the user message
+        const filteredBlocks = blocks.filter(
+            b => !(b.type === 'tool_result' && b.tool_use_id && orphanedResultIds.has(b.tool_use_id))
+        );
+
+        if (filteredBlocks.length === 0) {
+            // The user message was entirely tool_result blocks — remove it
+            merged.splice(i, 1);
+            i--; // re-check this index
+        } else {
+            merged[i].content = filteredBlocks;
+        }
+    }
+
     // Anthropic requires conversation to start with 'user'.
     // If it starts with 'assistant', prepend a synthetic user turn.
     if (merged.length > 0 && merged[0].role === 'assistant') {

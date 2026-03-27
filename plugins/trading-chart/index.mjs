@@ -471,6 +471,7 @@ Create this chart: ${description}`;
     // ── Tool 1: trading_compute_indicators ────────────────────────────────
 
     api.tools.register({
+        surfaceSafe: true,
         useOriginalName: true,
         name: 'trading_compute_indicators',
         description:
@@ -532,6 +533,7 @@ Create this chart: ${description}`;
     // ── Tool 2: trading_predict_candles ───────────────────────────────────
 
     api.tools.register({
+        surfaceSafe: true,
         useOriginalName: true,
         name: 'trading_predict_candles',
         description:
@@ -599,6 +601,7 @@ Create this chart: ${description}`;
     // (the LLM or another tool provides the raw data from MEXC browser).
 
     api.tools.register({
+        surfaceSafe: true,
         useOriginalName: true,
         name: 'trading_get_candles',
         description:
@@ -665,6 +668,7 @@ Create this chart: ${description}`;
     // and automatically stores them in the CandleStore.
 
     api.tools.register({
+        surfaceSafe: true,
         useOriginalName: true,
         name: 'trading_fetch_candles',
         description:
@@ -979,6 +983,7 @@ Create this chart: ${description}`;
     // ── Tool 7: trading_get_positions ─────────────────────────────────────
 
     api.tools.register({
+        surfaceSafe: true,
         useOriginalName: true,
         name: 'trading_get_positions',
         description: 'Get all currently tracked open positions with unrealized PnL.',
@@ -1011,6 +1016,7 @@ Create this chart: ${description}`;
     // ── Tool 8: trading_get_account ───────────────────────────────────────
 
     api.tools.register({
+        surfaceSafe: true,
         useOriginalName: true,
         name: 'trading_get_account',
         description: 'Get trading account summary: daily PnL, positions, risk status, halt conditions.',
@@ -1342,6 +1348,7 @@ Create this chart: ${description}`;
     // ── Tool 12: trading_get_trade_history ────────────────────────────────
 
     api.tools.register({
+        surfaceSafe: true,
         useOriginalName: true,
         name: 'trading_get_trade_history',
         description: 'Get trading performance summary including PnL, win rate, and daily metrics.',
